@@ -4,3 +4,9 @@
 /assets/frame-reviews/
 __pycache__/
 *.pyc
+node_modules/
+dist/
+.preview.log
+.preview.err.log
+.vite-dev.log
+.vite-dev.err.log
