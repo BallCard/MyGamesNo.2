@@ -2,6 +2,12 @@
 
 This directory is the reusable knowledge base extracted from the `ZJU Cat Merge` build process.
 
+## Start Here
+
+If a new agent is taking over this project, start with:
+
+- `START_HERE_FOR_NEW_AGENT.md`
+
 ## Structure
 
 ### `guides/`
@@ -11,6 +17,8 @@ Long-form engineering doctrine and postmortem documents.
   The architecture, debugging, and game-engine rules distilled from this project.
 - `VibeCoding-Game-Requirements-Testing-and-Subagent-Workflow.md`
   The practical guide for requirement completeness, test strategy, and subagent usage.
+- `Next-Phase-Optimization-and-Agent-Handoff-Guide.md`
+  The next-phase optimization map and the fastest handoff SOP for future agents.
 
 ### `templates/`
 Ready-to-copy working docs for future projects.
