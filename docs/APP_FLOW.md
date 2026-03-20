@@ -57,3 +57,16 @@
 - Input blocking is critical during bomb / hammer targeting
 - Danger state must remain readable without feeling panicked
 - Screenshot CTA should be prominent on result screen
+
+## Result and Share Flow Rules
+
+- Result screen must surface score, highest cat, combo, nickname, and screenshot CTA in the first viewport
+- Score upload failure must not block screenshot export
+- Leaderboard access should remain available even after a failed upload attempt
+- Share card capture should come from a cleaned result state, not from the raw gameplay HUD
+
+## Home Screen Entry Rules
+
+- Home screen must present one dominant start action and a lighter leaderboard entry
+- Nickname editing should be available before first play but should not block starting the run
+- First-time guidance should stay to a single short helper line instead of a blocking tutorial

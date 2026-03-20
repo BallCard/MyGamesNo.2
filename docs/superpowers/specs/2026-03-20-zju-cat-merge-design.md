@@ -195,3 +195,54 @@ V1 uses lightweight protection:
 - One run reliably fits the intended short-session window
 - Leaderboards are stable enough for public use
 - End-of-run screenshots are attractive enough to share in WeChat groups
+
+## Approved V1 Cat Progression
+
+The public runtime naming for cat progression is numeric only: `Lv.1` through `Lv.12`. V1 does not use public meme names for the cat levels. The cat image itself carries the personality; the level number carries the progression meaning.
+
+### Main Source Mapping
+
+- `Lv.1` -> `1739669151740.gif`
+- `Lv.2` -> `1739669468684.gif`
+- `Lv.3` -> `1739669272399.gif`
+- `Lv.4` -> `1739677373999.gif`
+- `Lv.5` -> `1739669511858.gif`
+- `Lv.6` -> `1739669611997.gif`
+- `Lv.7` -> `1739669329312.gif`
+- `Lv.8` -> `1739670504608.gif`
+- `Lv.9` -> `1739669761027.gif`
+- `Lv.10` -> `1739670687306.gif`
+- `Lv.11` -> `1739670476430.gif`
+- `Lv.12` -> `1739670012601.gif`
+
+### Backup Source Pool
+
+- `1739670003873.gif`
+- `1739669996873.gif`
+- `1739670738094.gif`
+- `2458469307.gif`
+- `1739673225182.gif`
+- `1739675834438.gif`
+
+### Export Constraints
+
+- Export runtime assets to `cat-1.png` through `cat-12.png`
+- Use transparent square PNGs, default `512x512`
+- Center the subject and avoid runtime image surgery
+- Choose the most representative still frame per GIF rather than always using frame 0
+
+## Result, Leaderboard, and Share Presentation
+
+V1 result presentation should use concise Chinese-first copy with selective English stat labels such as `Final Score`, `Highest Cat`, and `Best Combo`. The result screen must prioritize immediate comprehension: headline, score, highest cat, best combo, nickname, and screenshot action should all appear without requiring extra navigation.
+
+Leaderboard presentation should remain compact and legible, using `总榜` and `周榜` as the primary tabs. Public ranking copy should stay short and readable rather than overly meme-heavy.
+
+The share card is a portrait-first polished result artifact, not a raw screen capture. It should center the cat stack visually, show score as the strongest text element, and include nickname, highest cat, and best combo. Rank appears only when already confirmed by backend response; otherwise it is omitted cleanly.
+
+## Home Screen Direction
+
+The home screen should act as a low-friction launch pad rather than a content hub. It needs a dominant `开始吸猫` primary action, a visible but lower-priority leaderboard entry, lightweight nickname editing, and a short one-line hook that explains the tone without over-explaining the rules. V1 should avoid heavy tutorial overlays on first launch and instead rely on a single concise helper line plus obvious visual affordances.
+
+## HUD Direction
+
+The gameplay HUD should stay light and functional. The top area needs to preserve context for `Next`, `Score`, and the red-line danger state, while the lower area holds the tool bar in a stable left-to-right order: `Refresh`, `Shake`, `Hammer`, `Bomb`. Combo feedback should behave as transient center-screen celebration rather than a permanent dashboard widget.

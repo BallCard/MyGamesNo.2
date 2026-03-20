@@ -56,3 +56,18 @@
 - Important UI must remain readable over a busy cat stack
 - Audio needs independent music and SFX toggles
 - Screenshots should hide low-value debug or utility clutter
+
+## Cat Asset Presentation Rules
+
+- Show level identity externally as `Lv.1` through `Lv.12`
+- Do not clutter gameplay UI with extra cat nicknames in V1
+- Cat art should supply the humor; text should supply only clarity
+- Runtime cat sprites must come from preprocessed transparent PNG assets, not live GIF playback in V1
+- Gameplay rendering should preserve visual readability even when multiple cats overlap tightly
+
+## HUD and Tool Bar Rules
+
+- Top HUD should prioritize `Next`, `Score`, and red-line danger readability
+- Persistent UI should avoid covering the center stack
+- Tool bar should sit in the lower reach zone and keep a stable order: `Refresh`, `Shake`, `Hammer`, `Bomb`
+- Combo is primarily a transient center-screen effect, not a permanent scoreboard panel
