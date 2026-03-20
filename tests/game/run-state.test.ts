@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import {
   getCatDefinition,
@@ -15,24 +15,22 @@ import {
 } from "../../src/game/systems/runState";
 
 describe("run state", () => {
-  test("starts with score zero and a visible queued next cat", () => {
+  test("starts with score zero and a level-1 queued next cat", () => {
     const state = createRunState(123);
 
     expect(state.score).toBe(0);
-    expect(state.queuedNext.level).toBeGreaterThanOrEqual(1);
-    expect(state.queuedNext.level).toBeLessThanOrEqual(4);
+    expect(state.queuedNext.level).toBe(1);
     expect(state.cooldownMs).toBe(0);
   });
 
-  test("dropping consumes the queued cat and rolls a new queued next", () => {
+  test("dropping consumes the queued cat and keeps early rolls within the unlocked band", () => {
     const state = createRunState(123);
     const previousNext = state.queuedNext;
 
     const result = dropCurrentCat(state);
 
     expect(result.droppedCat).toEqual(previousNext);
-    expect(result.nextState.queuedNext.level).toBeGreaterThanOrEqual(1);
-    expect(result.nextState.queuedNext.level).toBeLessThanOrEqual(4);
+    expect(result.nextState.queuedNext.level).toBe(1);
     expect(result.nextState.cooldownMs).toBe(180);
   });
 
@@ -64,27 +62,39 @@ describe("run state", () => {
   });
 
   test("unlocks higher direct-drop levels as score increases, capped at level 8", () => {
-    expect(getUnlockedMaxDropLevel(0)).toBe(4);
-    expect(getUnlockedMaxDropLevel(500)).toBe(5);
-    expect(getUnlockedMaxDropLevel(1400)).toBe(6);
-    expect(getUnlockedMaxDropLevel(2800)).toBe(7);
+    expect(getUnlockedMaxDropLevel(0)).toBe(1);
+    expect(getUnlockedMaxDropLevel(60)).toBe(2);
+    expect(getUnlockedMaxDropLevel(180)).toBe(3);
+    expect(getUnlockedMaxDropLevel(420)).toBe(4);
+    expect(getUnlockedMaxDropLevel(900)).toBe(5);
+    expect(getUnlockedMaxDropLevel(1800)).toBe(6);
+    expect(getUnlockedMaxDropLevel(3200)).toBe(7);
     expect(getUnlockedMaxDropLevel(5200)).toBe(8);
     expect(getUnlockedMaxDropLevel(999999)).toBe(8);
   });
 
   test("reports unlock progress toward the next direct-drop tier", () => {
-    expect(getUnlockProgress(0)).toMatchObject({ currentMaxLevel: 4, nextMaxLevel: 5, progressRatio: 0 });
-    expect(getUnlockProgress(225).progressRatio).toBeCloseTo(0.5, 1);
-    expect(getUnlockProgress(700)).toMatchObject({ currentMaxLevel: 5, nextMaxLevel: 6 });
+    expect(getUnlockProgress(0)).toMatchObject({ currentMaxLevel: 1, nextMaxLevel: 2, progressRatio: 0 });
+    expect(getUnlockProgress(30).progressRatio).toBeCloseTo(0.5, 1);
+    expect(getUnlockProgress(120)).toMatchObject({ currentMaxLevel: 2, nextMaxLevel: 3 });
     expect(getUnlockProgress(9000)).toMatchObject({ currentMaxLevel: 8, nextMaxLevel: null, progressRatio: 1 });
   });
 
   test("rollQueuedCat never exceeds the unlocked max level", () => {
     const low = rollQueuedCat(123, 0);
-    const high = rollQueuedCat(456, 8000);
+    const mid = rollQueuedCat(456, 250);
+    const high = rollQueuedCat(789, 8000);
 
-    expect(low.queued.level).toBeLessThanOrEqual(4);
+    expect(low.queued.level).toBe(1);
+    expect(mid.queued.level).toBeLessThanOrEqual(3);
     expect(high.queued.level).toBeLessThanOrEqual(8);
+  });
+
+  test("never direct-drops level 9 or above even at very high scores", () => {
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const rolled = rollQueuedCat(seed, 999999).queued;
+      expect(rolled.level).toBeLessThanOrEqual(8);
+    }
   });
 
   test("avoids repeating the exact same high-level variant when alternates exist", () => {

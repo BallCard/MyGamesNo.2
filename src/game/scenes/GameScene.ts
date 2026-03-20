@@ -1,5 +1,6 @@
-﻿import Phaser from "phaser";
+import Phaser from "phaser";
 
+import type { HudBridge } from "../hud/bridge";
 import {
   getCatRadius,
   getDropVariantPool,
@@ -13,6 +14,7 @@ import {
   updateDangerState
 } from "../systems/dangerSystem";
 import { createMergeQueue, enqueueMergePair, shiftNextMerge } from "../systems/mergeQueue";
+import { enqueueHudAction, shiftNextHudAction, type HudActionQueue } from "../systems/hudActionQueue";
 import { BOMB_DELETE_RADIUS, BOMB_KNOCKBACK_RADIUS, classifyBombImpact } from "../systems/bombEffect";
 import { mergeCatLevels } from "../systems/mergeSystem";
 import {
@@ -20,6 +22,8 @@ import {
   getMergedSpawnPlacement,
   getMergeSpawnPolicy
 } from "../systems/physicsPolicy";
+import { getPointerUpSuppression, resolvePointerDownSuppression, shouldDropOnPointerUp, type InputActionSource, type PointerUpSuppression } from "../systems/inputPolicy";
+import { getGameUiLayout, getPreviewSpawnY, type GameUiLayout } from "../systems/uiPolicy";
 import {
   awardScore,
   createRunState,
@@ -55,7 +59,9 @@ type CatBall = {
 
 type ToolButton = {
   kind: ToolKind;
-  background: Phaser.GameObjects.Rectangle;
+  shadow: Phaser.GameObjects.Ellipse;
+  background: Phaser.GameObjects.Ellipse;
+  icon: Phaser.GameObjects.Text;
   label: Phaser.GameObjects.Text;
   count: Phaser.GameObjects.Text;
 };
@@ -76,6 +82,7 @@ export class GameScene extends Phaser.Scene {
   private holdPreviewFace?: Phaser.GameObjects.Image;
   private holdPreviewText?: Phaser.GameObjects.Text;
   private cooldownText?: Phaser.GameObjects.Text;
+  private scoreSubtitleText?: Phaser.GameObjects.Text;
   private dangerFill?: Phaser.GameObjects.Rectangle;
   private aimLine?: Phaser.GameObjects.Graphics;
   private comboText?: Phaser.GameObjects.Text;
@@ -85,28 +92,48 @@ export class GameScene extends Phaser.Scene {
   private gameOverRestartButton?: Phaser.GameObjects.Rectangle;
   private gameOverRestartText?: Phaser.GameObjects.Text;
   private targetHintText?: Phaser.GameObjects.Text;
-  private redLineY = 210;
-  private aimLineEndY = 258;
-  private previewSpawnY = 184;
-  private playfieldTop = 120;
+  private redLineY = 248;
+  private aimLineEndY = 286;
+  private previewSpawnY = 224;
+  private playfieldTop = 104;
   private playfieldBottom = 676;
-  private leftWallX = 20;
-  private rightWallX = 424;
+  private leftWallX = 0;
+  private rightWallX = 444;
   private ballIdCounter = 0;
   private balls = new Map<string, CatBall>();
   private mergeQueue = createMergeQueue();
+  private pendingHudActions: HudActionQueue = [];
   private toolButtons: ToolButton[] = [];
+  private pointerUpSuppression: PointerUpSuppression = "none";
+  private uiLayout?: GameUiLayout;
+  private hudBridge?: HudBridge;
+  private useDomHud = false;
 
-  constructor() {
+  constructor(bridge?: HudBridge) {
     super("game");
+    this.hudBridge = bridge;
   }
 
   create(): void {
     const width = this.scale.width;
     const height = this.scale.height;
 
-    this.cameras.main.setBackgroundColor("#f7efd9");
+    this.cameras.main.setBackgroundColor("#fbf4e3");
     this.pointerX = width / 2;
+    this.useDomHud = Boolean(this.hudBridge);
+    this.uiLayout = getGameUiLayout(width, height);
+    this.playfieldTop = this.uiLayout.playfield.top;
+    this.playfieldBottom = this.uiLayout.playfield.bottom;
+    this.leftWallX = this.uiLayout.playfield.left;
+    this.rightWallX = this.uiLayout.playfield.right;
+    this.redLineY = this.playfieldTop + 144;
+    this.aimLineEndY = this.redLineY + 38;
+    this.previewSpawnY = getPreviewSpawnY(this.playfieldTop, this.redLineY);
+
+    this.hudBridge?.bindControls({
+      restartRound: () => this.restartRoundFromHud(),
+      triggerTool: (tool) => this.triggerToolFromHud(tool),
+    });
 
     this.ensureBallTexture();
     this.drawHudFrame(width, height);
@@ -118,6 +145,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_: number, delta: number): void {
+    this.processPendingHudActions();
     this.runState = tickRunState(this.runState, delta);
     this.toolState = tickToolState(this.toolState, delta);
     this.syncBallFaces();
@@ -174,134 +202,234 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawHudFrame(width: number, height: number): void {
-    this.add
-      .rectangle(width / 2, 42, width - 24, 54, 0xfff7ea, 0.92)
-      .setStrokeStyle(2, 0xe4ccb1, 0.9);
+    if (this.useDomHud) {
+      this.targetHintText = this.add
+        .text(width / 2, this.playfieldTop + 14, "", {
+          color: "#c46d40",
+          fontFamily: "Microsoft YaHei UI",
+          fontSize: "14px",
+          fontStyle: "bold",
+          stroke: "#fff7ea",
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5)
+        .setDepth(9)
+        .setVisible(false);
 
-    this.add.text(28, 22, "Score", {
-      color: "#5b3a29",
-      fontFamily: "Microsoft YaHei UI",
-      fontSize: "13px"
-    });
+      this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, 0xd96c5f, 0.85).setLineWidth(2);
 
-    this.scoreText = this.add.text(28, 42, "0", {
-      color: "#5b3a29",
-      fontFamily: "Microsoft YaHei UI",
-      fontSize: "22px",
-      fontStyle: "bold"
-    });
+      this.holdPreviewBase = this.add.image(width / 2, this.previewSpawnY, "cat-ball-base").setDisplaySize(56, 56).setTint(0xfff4e8);
+      this.holdPreviewFace = this.add.image(width / 2, this.previewSpawnY, "cat-1").setDisplaySize(40, 40);
+      this.holdPreviewText = this.add
+        .text(width / 2, this.previewSpawnY - 40, "", {
+          color: "#8b5e3c",
+          fontFamily: "Microsoft YaHei UI",
+          fontSize: "13px",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5, 0.5);
 
-    this.add.rectangle(126, 50, 120, 8, 0xe9dbc5, 1).setOrigin(0, 0.5);
-    this.unlockFill = this.add.rectangle(126, 50, 0, 8, 0xf2a65a, 1).setOrigin(0, 0.5);
-    this.unlockText = this.add.text(126, 26, "Drop Lv.4", {
-      color: "#8b5e3c",
-      fontFamily: "Microsoft YaHei UI",
-      fontSize: "12px",
-      fontStyle: "bold"
-    });
+      this.comboText = this.add
+        .text(width / 2, this.playfieldTop + 38, "", {
+          color: "#d27c44",
+          fontFamily: "Microsoft YaHei UI",
+          fontSize: "24px",
+          fontStyle: "bold",
+          stroke: "#fff7ea",
+          strokeThickness: 6,
+        })
+        .setOrigin(0.5)
+        .setDepth(9)
+        .setVisible(false);
 
-    this.add
-      .text(width - 84, 22, "Next", {
-        color: "#5b3a29",
+      this.gameOverText = this.add
+        .text(width / 2, this.playfieldTop + 176, "Game Over", {
+          color: "#5b3a29",
+          fontFamily: "Microsoft YaHei UI",
+          fontSize: "28px",
+          fontStyle: "bold",
+          align: "center",
+          backgroundColor: "rgba(255,250,242,0.88)",
+        })
+        .setOrigin(0.5)
+        .setDepth(10)
+        .setPadding(18, 12, 18, 12)
+        .setVisible(false);
+
+      this.gameOverRestartButton = this.add
+        .rectangle(width / 2, this.playfieldTop + 236, 142, 38, 0xf2a65a, 0.98)
+        .setDepth(10)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true });
+      this.gameOverRestartText = this.add
+        .text(width / 2, this.playfieldTop + 236, "Restart", {
+          color: "#fff9f2",
+          fontFamily: "Microsoft YaHei UI",
+          fontSize: "16px",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5)
+        .setDepth(11)
+        .setVisible(false);
+      this.gameOverRestartButton.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        this.pointerUpSuppression = getPointerUpSuppression("playfield")
+        this.resetRound("playfield");
+      });
+
+      this.aimLine = this.add.graphics();
+      return;
+    }
+
+
+    const layout = this.uiLayout ?? getGameUiLayout(width, height);
+
+    this.add.rectangle(width / 2, layout.header.height / 2, width, layout.header.height, layout.header.backgroundColor, 1);
+
+    this.nextPreviewBase = this.add
+      .image(layout.header.next.x, layout.header.next.y, "cat-ball-base")
+      .setDisplaySize(layout.header.next.radius * 2, layout.header.next.radius * 2)
+      .setTint(0xfff5e8);
+    this.nextPreviewFace = this.add
+      .image(layout.header.next.x, layout.header.next.y, "cat-1")
+      .setDisplaySize(layout.header.next.radius * 1.35, layout.header.next.radius * 1.35);
+
+    this.add.rectangle(
+      layout.header.progress.x,
+      layout.header.progress.y,
+      layout.header.progress.width,
+      layout.header.progress.height,
+      0xfff4e8,
+      0.96,
+    );
+    this.add.rectangle(
+      layout.header.progress.x,
+      layout.header.progress.y,
+      layout.header.progress.width - 22,
+      12,
+      0x6d7388,
+      0.48,
+    );
+    this.unlockFill = this.add.rectangle(
+      layout.header.progress.x - (layout.header.progress.width - 22) / 2,
+      layout.header.progress.y,
+      0,
+      12,
+      0xf7b94c,
+      1,
+    ).setOrigin(0, 0.5);
+    this.unlockText = this.add
+      .text(layout.header.progress.x - layout.header.progress.width / 2 + 18, layout.header.progress.y - 16, "Lv.1", {
+        color: "#d9dceb",
         fontFamily: "Microsoft YaHei UI",
-        fontSize: "13px"
+        fontSize: "12px",
+        fontStyle: "bold",
       })
-      .setOrigin(0.5, 0.5);
-
-    this.nextPreviewBase = this.add.image(width - 92, 48, "cat-ball-base").setDisplaySize(38, 38);
-    this.nextPreviewFace = this.add.image(width - 92, 48, "cat-1").setDisplaySize(28, 28);
-    this.nextText = this.add
-      .text(width - 28, 48, "", {
-        color: "#5b3a29",
+      .setOrigin(0, 0.5);
+    this.cooldownText = this.add
+      .text(layout.header.progress.x + layout.header.progress.width / 2 - 18, layout.header.progress.y - 16, "Lv.2", {
+        color: "#d9dceb",
         fontFamily: "Microsoft YaHei UI",
-        fontSize: "16px",
-        fontStyle: "bold"
+        fontSize: "12px",
+        fontStyle: "bold",
       })
       .setOrigin(1, 0.5);
 
-    this.cooldownText = this.add
-      .text(width / 2 + 10, 22, "Ready", {
-        color: "#8b5e3c",
-        fontFamily: "Microsoft YaHei UI",
-        fontSize: "13px"
-      })
-      .setOrigin(0.5, 0.5);
-
-    this.add.rectangle(width / 2, 98, width - 40, 8, 0xe9dbc5, 1).setOrigin(0.5);
-    this.dangerFill = this.add.rectangle(20, 98, 0, 8, 0xd96c5f, 1).setOrigin(0, 0.5);
-
     this.restartButton = this.add
-      .rectangle(width - 42, 98, 54, 26, 0xfff7ea, 0.98)
-      .setStrokeStyle(2, 0xe4ccb1, 0.95)
+      .ellipse(
+        layout.header.restart.x,
+        layout.header.restart.y,
+        layout.header.restart.radius * 2,
+        layout.header.restart.radius * 2,
+        0xfff4e8,
+        0.98,
+      )
       .setDepth(7)
       .setInteractive({ useHandCursor: true });
     this.restartButtonText = this.add
-      .text(width - 42, 98, "Restart", {
-        color: "#8b5e3c",
+      .text(layout.header.restart.x, layout.header.restart.y, "R", {
+        color: "#1c8b73",
         fontFamily: "Microsoft YaHei UI",
-        fontSize: "10px",
-        fontStyle: "bold"
+        fontSize: "20px",
+        fontStyle: "bold",
       })
       .setOrigin(0.5)
       .setDepth(8);
     this.restartButton.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
       event.stopPropagation();
-      this.resetRound();
+      this.pointerUpSuppression = getPointerUpSuppression("playfield")
+      this.resetRound("playfield");
     });
 
+    this.scoreText = this.add
+      .text(layout.scoreDisplay.valueX, layout.scoreDisplay.valueY, "0", {
+        color: layout.scoreDisplay.accentColor,
+        fontFamily: "Microsoft YaHei UI",
+        fontSize: "58px",
+        fontStyle: "bold",
+        stroke: "#fff7ea",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    this.scoreSubtitleText = this.add
+      .text(layout.scoreDisplay.valueX, layout.scoreDisplay.subtitleY, layout.scoreDisplay.subtitle, {
+        color: "#90939f",
+        fontFamily: "Microsoft YaHei UI",
+        fontSize: "18px",
+        letterSpacing: 6,
+      })
+      .setOrigin(0.5);
+
+    this.nextText = this.add
+      .text(layout.header.next.x, layout.header.next.y + 38, "NEXT", {
+        color: "#d9dceb",
+        fontFamily: "Microsoft YaHei UI",
+        fontSize: "11px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+
+    this.dangerFill = this.add.rectangle(18, this.redLineY - 16, 0, 6, 0xd96c5f, 0.96).setOrigin(0, 0.5).setVisible(false);
+
     this.targetHintText = this.add
-      .text(width / 2, this.playfieldTop + 18, "", {
+      .text(width / 2, this.playfieldTop + 14, "", {
         color: "#c46d40",
         fontFamily: "Microsoft YaHei UI",
         fontSize: "14px",
         fontStyle: "bold",
         stroke: "#fff7ea",
-        strokeThickness: 4
+        strokeThickness: 4,
       })
       .setOrigin(0.5)
       .setDepth(9)
       .setVisible(false);
 
-    this.add
-      .rectangle(
-        width / 2,
-        (this.playfieldTop + this.playfieldBottom) / 2,
-        width - 24,
-        this.playfieldBottom - this.playfieldTop,
-        0xfffaf2,
-        0.75
-      )
-      .setStrokeStyle(2, 0xe4ccb1, 0.8);
+    this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, 0xd96c5f, 0.85).setLineWidth(2);
 
-    this.add
-      .line(width / 2, this.redLineY, 0, 0, width - 40, 0, 0xd96c5f, 0.85)
-      .setLineWidth(2);
+    this.createToolButton(layout.tools.leftX, layout.tools.topY, "shake", "??", "SHAKE");
+    this.createToolButton(layout.tools.leftX, layout.tools.topY + layout.tools.gapY, "hammer", "??", "HAMMER");
+    this.createToolButton(layout.tools.rightX, layout.tools.topY, "bomb", "??", "BOMB");
+    this.createToolButton(layout.tools.rightX, layout.tools.topY + layout.tools.gapY, "refresh", "??", "REFRESH");
 
-    this.createToolButton(52, 396, "refresh", "🔄");
-    this.createToolButton(52, 470, "shake", "📳");
-    this.createToolButton(width - 52, 396, "hammer", "🔨");
-    this.createToolButton(width - 52, 470, "bomb", "💣");
-
-
-    this.holdPreviewBase = this.add.image(width / 2, this.previewSpawnY, "cat-ball-base").setDisplaySize(60, 60);
-    this.holdPreviewFace = this.add.image(width / 2, this.previewSpawnY, "cat-1").setDisplaySize(44, 44);
+    this.holdPreviewBase = this.add.image(width / 2, this.previewSpawnY, "cat-ball-base").setDisplaySize(56, 56).setTint(0xfff4e8);
+    this.holdPreviewFace = this.add.image(width / 2, this.previewSpawnY, "cat-1").setDisplaySize(40, 40);
     this.holdPreviewText = this.add
-      .text(width / 2, this.previewSpawnY - 42, "", {
+      .text(width / 2, this.previewSpawnY - 40, "", {
         color: "#8b5e3c",
         fontFamily: "Microsoft YaHei UI",
         fontSize: "13px",
-        fontStyle: "bold"
+        fontStyle: "bold",
       })
       .setOrigin(0.5, 0.5);
 
     this.comboText = this.add
-      .text(width / 2, this.playfieldTop + 46, "", {
+      .text(width / 2, this.playfieldTop + 38, "", {
         color: "#d27c44",
         fontFamily: "Microsoft YaHei UI",
         fontSize: "24px",
         fontStyle: "bold",
         stroke: "#fff7ea",
-        strokeThickness: 6
+        strokeThickness: 6,
       })
       .setOrigin(0.5)
       .setDepth(9)
@@ -314,7 +442,7 @@ export class GameScene extends Phaser.Scene {
         fontSize: "28px",
         fontStyle: "bold",
         align: "center",
-        backgroundColor: "rgba(255,250,242,0.88)"
+        backgroundColor: "rgba(255,250,242,0.88)",
       })
       .setOrigin(0.5)
       .setDepth(10)
@@ -323,75 +451,83 @@ export class GameScene extends Phaser.Scene {
 
     this.gameOverRestartButton = this.add
       .rectangle(width / 2, this.playfieldTop + 236, 142, 38, 0xf2a65a, 0.98)
-      .setStrokeStyle(2, 0xe4ccb1, 0.95)
       .setDepth(10)
       .setVisible(false)
       .setInteractive({ useHandCursor: true });
     this.gameOverRestartText = this.add
-      .text(width / 2, this.playfieldTop + 236, "再来一把", {
+      .text(width / 2, this.playfieldTop + 236, "Restart", {
         color: "#fff9f2",
         fontFamily: "Microsoft YaHei UI",
         fontSize: "16px",
-        fontStyle: "bold"
+        fontStyle: "bold",
       })
       .setOrigin(0.5)
       .setDepth(11)
       .setVisible(false);
     this.gameOverRestartButton.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
       event.stopPropagation();
-      this.resetRound();
+      this.pointerUpSuppression = getPointerUpSuppression("playfield")
+      this.resetRound("playfield");
     });
 
     this.aimLine = this.add.graphics();
   }
 
-  private createToolButton(x: number, y: number, kind: ToolKind, emoji: string): void {
-    this.add
-      .rectangle(x + 3, y + 5, 60, 60, 0xd6b892, 0.24)
-      .setDepth(6);
+  private createToolButton(x: number, y: number, kind: ToolKind, emoji: string, labelText: string): void {
+    const shadow = this.add.ellipse(x, y + 10, 68, 68, 0xd8b890, 0.18).setDepth(5);
 
     const background = this.add
-      .rectangle(x, y, 60, 60, 0xfff7ea, 0.98)
-      .setStrokeStyle(2, 0xe4ccb1, 0.95)
-      .setDepth(7)
+      .ellipse(x, y, 64, 64, 0xfffaf2, 0.98)
+      .setDepth(6)
       .setInteractive({ useHandCursor: true });
 
-    const label = this.add
-      .text(x, y - 10, emoji, {
+    const icon = this.add
+      .text(x, y - 8, emoji, {
         fontFamily: "Microsoft YaHei UI",
-        fontSize: "20px"
+        fontSize: "22px",
       })
       .setOrigin(0.5)
-      .setDepth(8);
+      .setDepth(7);
 
-    const count = this.add
-      .text(x, y + 15, "x0", {
-        color: "#8b5e3c",
+    const label = this.add
+      .text(x, y + 16, labelText, {
+        color: "#3f3127",
         fontFamily: "Microsoft YaHei UI",
         fontSize: "10px",
-        fontStyle: "bold"
+        fontStyle: "bold",
       })
       .setOrigin(0.5)
-      .setDepth(8);
+      .setDepth(7);
+
+    const count = this.add
+      .text(x, y + 30, "x0", {
+        color: "#8b5e3c",
+        fontFamily: "Microsoft YaHei UI",
+        fontSize: "9px",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(7);
 
     background.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
       event.stopPropagation();
+      this.pointerUpSuppression = getPointerUpSuppression("playfield")
       this.handleToolButton(kind);
     });
 
-    this.toolButtons.push({ kind, background, label, count });
+    this.toolButtons.push({ kind, shadow, background, icon, label, count });
   }
 
   private createBounds(width: number, height: number): void {
-    this.matter.add.rectangle(width / 2, this.playfieldBottom + 30, width - 20, 60, {
+    this.matter.add.rectangle(width / 2, this.playfieldBottom + 30, width + 24, 60, {
       isStatic: true,
       label: "floor"
     });
-    this.matter.add.rectangle(this.leftWallX - 14, (this.playfieldTop + this.playfieldBottom) / 2, 28, height, {
+    this.matter.add.rectangle(this.leftWallX - 12, (this.playfieldTop + this.playfieldBottom) / 2, 24, height, {
       isStatic: true,
       label: "wall-left"
     });
-    this.matter.add.rectangle(this.rightWallX + 14, (this.playfieldTop + this.playfieldBottom) / 2, 28, height, {
+    this.matter.add.rectangle(this.rightWallX + 12, (this.playfieldTop + this.playfieldBottom) / 2, 24, height, {
       isStatic: true,
       label: "wall-right"
     });
@@ -412,24 +548,31 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (this.toolState.activeTargetTool) {
+        this.pointerUpSuppression = getPointerUpSuppression("playfield");
         this.tryResolveTargetTool(pointer.x, pointer.y);
         return;
       }
 
+      this.pointerUpSuppression = resolvePointerDownSuppression(
+        this.pointerUpSuppression,
+        Boolean(this.toolState.activeTargetTool),
+      );
       this.pointerX = Phaser.Math.Clamp(pointer.x, this.leftWallX + 26, this.rightWallX - 26);
       this.isAiming = true;
       this.updateHoldPreview();
     });
 
     this.input.on("pointerup", () => {
-      if (this.toolState.activeTargetTool) {
-        this.isAiming = false;
-        this.updateHoldPreview();
-        return;
-      }
-
       this.isAiming = false;
-      if (this.dangerState.isGameOver) {
+
+      const shouldDrop = shouldDropOnPointerUp({
+        isGameOver: this.dangerState.isGameOver,
+        hasActiveTargetTool: Boolean(this.toolState.activeTargetTool),
+        suppression: this.pointerUpSuppression,
+      });
+
+      if (!shouldDrop) {
+        this.pointerUpSuppression = "none";
         this.updateHoldPreview();
         return;
       }
@@ -441,6 +584,12 @@ export class GameScene extends Phaser.Scene {
       }
       this.refreshHud();
       this.redrawAimLine();
+      this.updateHoldPreview();
+    });
+
+    this.input.on("pointerupoutside", () => {
+      this.isAiming = false;
+      this.pointerUpSuppression = "none";
       this.updateHoldPreview();
     });
 
@@ -695,43 +844,53 @@ export class GameScene extends Phaser.Scene {
 
   private refreshHud(): void {
     this.scoreText?.setText(String(this.runState.score));
+    const unlock = getUnlockProgress(this.runState.score);
     this.nextText?.setText(`Lv.${this.runState.queuedNext.level}`);
-    this.cooldownText?.setText(
-      this.runState.cooldownMs > 0 ? `Cooldown ${Math.ceil(this.runState.cooldownMs)}ms` : "Ready"
-    );
+    this.unlockText?.setText(`Lv.${unlock.currentMaxLevel}`);
+    this.cooldownText?.setText(unlock.nextMaxLevel ? `Lv.${unlock.nextMaxLevel}` : `Lv.${unlock.currentMaxLevel}`);
 
     if (this.nextPreviewBase && this.nextPreviewFace) {
       this.nextPreviewBase.setVisible(true);
       this.nextPreviewFace.setTexture(this.runState.queuedNext.assetKey);
-      this.nextPreviewFace.setDisplaySize(28, 28);
+      this.nextPreviewFace.setDisplaySize(31, 31);
     }
 
-    const unlock = getUnlockProgress(this.runState.score);
-    this.unlockText?.setText(
-      unlock.nextMaxLevel
-        ? `Drop Lv.${unlock.currentMaxLevel} -> Lv.${unlock.nextMaxLevel}`
-        : `Drop Max Lv.${unlock.currentMaxLevel}`
-    );
-    this.unlockFill?.setSize(120 * unlock.progressRatio, 8);
+    this.unlockFill?.setSize(((this.uiLayout?.header.progress.width ?? 156) - 22) * unlock.progressRatio, 12);
 
     const ratio = Phaser.Math.Clamp(this.dangerState.accumulatedMs / 2200, 0, 1);
-    this.dangerFill?.setSize((this.scale.width - 40) * ratio, 8);
-    this.dangerFill?.setFillStyle(this.dangerState.isGameOver ? 0xbf4c3f : 0xd96c5f, 1);
+    this.dangerFill?.setVisible(ratio > 0);
+    this.dangerFill?.setSize((this.scale.width - 36) * ratio, 6);
+    this.dangerFill?.setFillStyle(this.dangerState.isGameOver ? 0xbf4c3f : 0xd96c5f, 0.96);
+
+    this.hudBridge?.publish({
+      score: this.runState.score,
+      scoreLabel: "ZJU MERGE",
+      nextLevel: this.runState.queuedNext.level,
+      nextAssetKey: this.runState.queuedNext.assetKey,
+      progressRatio: unlock.progressRatio,
+      progressCurrentLabel: `Lv.${unlock.currentMaxLevel}`,
+      progressNextLabel: unlock.nextMaxLevel ? `Lv.${unlock.nextMaxLevel}` : `Lv.${unlock.currentMaxLevel}`,
+      toolCounts: { ...this.toolState.counts },
+      activeTool: this.toolState.activeTargetTool,
+      dangerRatio: ratio,
+      isGameOver: this.dangerState.isGameOver,
+    });
 
     this.toolButtons.forEach((button) => {
       const isActive = this.toolState.activeTargetTool === button.kind;
       const count = this.toolState.counts[button.kind];
       button.count.setText(`x${count}`);
-      button.background.setFillStyle(isActive ? 0xf7c6a3 : 0xfff7ea, count > 0 ? 0.98 : 0.72);
-      button.background.setStrokeStyle(2, count > 0 ? (isActive ? 0xd27c44 : 0xe4ccb1) : 0xd6c7b3, 0.95);
+      button.background.setFillStyle(isActive ? 0xf8d8bb : 0xfffaf2, count > 0 ? 0.98 : 0.74);
+      button.shadow.setAlpha(count > 0 ? (isActive ? 0.28 : 0.18) : 0.08);
+      button.icon.setAlpha(count > 0 ? 1 : 0.38);
       button.label.setAlpha(count > 0 ? 1 : 0.38);
-      button.count.setAlpha(count > 0 ? 1 : 0.5);
+      button.count.setAlpha(count > 0 ? 0.9 : 0.45);
     });
 
     if (this.targetHintText) {
       const active = this.toolState.activeTargetTool;
       this.targetHintText.setVisible(Boolean(active));
-      this.targetHintText.setText(active ? `${active.toUpperCase()} · 点一只猫` : "");
+      this.targetHintText.setText(active ? `${active.toUpperCase()} - Tap a cat` : "");
     }
   }
 
@@ -777,7 +936,36 @@ export class GameScene extends Phaser.Scene {
     this.holdPreviewText.setPosition(this.pointerX, this.previewSpawnY - 42);
   }
 
-  private resetRound(): void {
+  public restartRoundFromHud(): void {
+    this.pendingHudActions = enqueueHudAction(this.pendingHudActions, { kind: "restart" });
+  }
+
+  public triggerToolFromHud(tool: ToolKind): void {
+    this.pendingHudActions = enqueueHudAction(this.pendingHudActions, { kind: "tool", tool });
+  }
+
+  private processPendingHudActions(): void {
+    while (true) {
+      const shifted = shiftNextHudAction(this.pendingHudActions);
+      this.pendingHudActions = shifted.queue;
+
+      if (!shifted.next) {
+        return;
+      }
+
+      if (shifted.next.kind === "restart") {
+        this.input.resetPointers();
+        this.resetRound("overlay");
+        continue;
+      }
+
+      this.input.resetPointers();
+      this.pointerUpSuppression = getPointerUpSuppression("overlay");
+      this.handleToolButton(shifted.next.tool);
+    }
+  }
+
+  private resetRound(source: InputActionSource = "playfield"): void {
     this.balls.forEach((ball) => {
       ball.body.destroy();
       ball.face.destroy();
@@ -788,6 +976,7 @@ export class GameScene extends Phaser.Scene {
     this.toolState = createToolState();
     this.dangerState = createDangerState();
     this.isAiming = false;
+    this.pointerUpSuppression = getPointerUpSuppression(source);
     this.gameOverText?.setVisible(false);
     this.gameOverRestartButton?.setVisible(false);
     this.gameOverRestartText?.setVisible(false);
@@ -856,6 +1045,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 }
+
+
+
+
+
+
+
+
+
 
 
 

@@ -17,6 +17,14 @@ describe("mergeCatLevels", () => {
     expect(result.scoreGained).toBe(getScoreForMerge(4));
   });
 
+  test("allows the last meaningful merge from level 11 into level 12", () => {
+    const result = mergeCatLevels(11, 11);
+
+    expect(result.merged).toBe(true);
+    expect(result.resultLevel).toBe(12);
+    expect(result.scoreGained).toBe(getScoreForMerge(12));
+  });
+
   test("does not merge cats with different levels", () => {
     const result = mergeCatLevels(3, 4);
 

@@ -1,4 +1,4 @@
-﻿export type CatDefinition = {
+export type CatDefinition = {
   level: number;
   assetKey: string;
   scoreValue: number;
@@ -18,11 +18,14 @@ export type UnlockProgress = {
 };
 
 const SCORE_UNLOCKS = [
-  { minScore: 0, maxLevel: 4 },
-  { minScore: 450, maxLevel: 5 },
-  { minScore: 1200, maxLevel: 6 },
-  { minScore: 2600, maxLevel: 7 },
-  { minScore: 4800, maxLevel: 8 }
+  { minScore: 0, maxLevel: 1 },
+  { minScore: 60, maxLevel: 2 },
+  { minScore: 180, maxLevel: 3 },
+  { minScore: 420, maxLevel: 4 },
+  { minScore: 900, maxLevel: 5 },
+  { minScore: 1800, maxLevel: 6 },
+  { minScore: 3200, maxLevel: 7 },
+  { minScore: 5200, maxLevel: 8 }
 ] as const;
 
 const CAT_RADII = [20, 22, 24, 27, 30, 34, 39, 45, 52, 60, 69, 79] as const;
@@ -77,7 +80,7 @@ export function getScoreForMerge(level: number): number {
 }
 
 export function getUnlockedMaxDropLevel(score: number): number {
-  let maxLevel = 4;
+  let maxLevel = 1;
   for (const unlock of SCORE_UNLOCKS) {
     if (score >= unlock.minScore) {
       maxLevel = unlock.maxLevel;
