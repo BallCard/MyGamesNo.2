@@ -2,3 +2,5 @@
 /assets/raw-gifs/
 /assets/preview-frames/
 /assets/frame-reviews/
+__pycache__/
+*.pyc
