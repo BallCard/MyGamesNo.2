@@ -16,7 +16,14 @@ import {
 import { createMergeQueue, enqueueMergePair, shiftNextMerge } from "../systems/mergeQueue";
 import { enqueueHudAction, shiftNextHudAction, type HudActionQueue } from "../systems/hudActionQueue";
 import { BOMB_DELETE_RADIUS, BOMB_KNOCKBACK_RADIUS, classifyBombImpact } from "../systems/bombEffect";
+import {
+  consumeComboMerge,
+  createComboState,
+  finalizeComboFrame,
+  type ComboState
+} from "../systems/comboState";
 import { mergeCatLevels } from "../systems/mergeSystem";
+import { COMBO_FEEDBACK_STYLE } from "../systems/gameplayTuning";
 import {
   getMergeFeedbackStyle,
   getMergedSpawnPlacement,
@@ -102,6 +109,7 @@ export class GameScene extends Phaser.Scene {
   private ballIdCounter = 0;
   private balls = new Map<string, CatBall>();
   private mergeQueue = createMergeQueue();
+  private comboState: ComboState = createComboState();
   private pendingHudActions: HudActionQueue = [];
   private toolButtons: ToolButton[] = [];
   private pointerUpSuppression: PointerUpSuppression = "none";
@@ -171,14 +179,27 @@ export class GameScene extends Phaser.Scene {
       immunityMs: this.toolState.immunityMs
     });
 
-    if (this.dangerState.isGameOver && this.gameOverText && !this.gameOverText.visible) {
-      this.gameOverText.setVisible(true);
-      this.gameOverRestartButton?.setVisible(true);
-      this.gameOverRestartText?.setVisible(true);
+    if (this.dangerState.isGameOver) {
+      if (this.gameOverText && !this.gameOverText.visible) {
+        this.gameOverText.setVisible(true);
+        this.gameOverRestartButton?.setVisible(true);
+        this.gameOverRestartText?.setVisible(true);
+      }
       this.toolState = cancelTargetTool(this.toolState);
+      this.mergeQueue = createMergeQueue();
+      this.comboState = createComboState();
+      this.clearComboFeedback();
+      this.refreshHud();
+      this.redrawAimLine();
+      this.updateHoldPreview();
+      return;
     }
 
-    this.processPendingMerges();
+    const resolvedMergesThisFrame = this.processPendingMerges();
+    this.comboState = finalizeComboFrame(this.comboState, delta, resolvedMergesThisFrame);
+    if (this.comboState.comboCount === 0) {
+      this.clearComboFeedback();
+    }
     this.refreshHud();
     this.redrawAimLine();
     this.updateHoldPreview();
@@ -230,17 +251,20 @@ export class GameScene extends Phaser.Scene {
         .setOrigin(0.5, 0.5);
 
       this.comboText = this.add
-        .text(width / 2, this.playfieldTop + 38, "", {
-          color: "#d27c44",
+        .text(width / 2, this.getComboFeedbackY(), "", {
+          color: COMBO_FEEDBACK_STYLE.baseColor,
           fontFamily: "Microsoft YaHei UI",
-          fontSize: "24px",
+          fontSize: `${COMBO_FEEDBACK_STYLE.fontSizePx}px`,
           fontStyle: "bold",
-          stroke: "#fff7ea",
-          strokeThickness: 6,
+          align: "center",
+          stroke: COMBO_FEEDBACK_STYLE.strokeColor,
+          strokeThickness: COMBO_FEEDBACK_STYLE.strokeThicknessPx,
         })
         .setOrigin(0.5)
-        .setDepth(9)
+        .setDepth(12)
+        .setAlpha(0)
         .setVisible(false);
+      this.comboText.setShadow(0, COMBO_FEEDBACK_STYLE.shadowOffsetY, COMBO_FEEDBACK_STYLE.shadowColor, COMBO_FEEDBACK_STYLE.shadowBlur, true, true);
 
       this.gameOverText = this.add
         .text(width / 2, this.playfieldTop + 176, "Game Over", {
@@ -423,17 +447,20 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0.5);
 
     this.comboText = this.add
-      .text(width / 2, this.playfieldTop + 38, "", {
-        color: "#d27c44",
+      .text(width / 2, this.getComboFeedbackY(), "", {
+        color: COMBO_FEEDBACK_STYLE.baseColor,
         fontFamily: "Microsoft YaHei UI",
-        fontSize: "24px",
+        fontSize: `${COMBO_FEEDBACK_STYLE.fontSizePx}px`,
         fontStyle: "bold",
-        stroke: "#fff7ea",
-        strokeThickness: 6,
+        align: "center",
+        stroke: COMBO_FEEDBACK_STYLE.strokeColor,
+        strokeThickness: COMBO_FEEDBACK_STYLE.strokeThicknessPx,
       })
       .setOrigin(0.5)
-      .setDepth(9)
+      .setDepth(12)
+      .setAlpha(0)
       .setVisible(false);
+    this.comboText.setShadow(0, COMBO_FEEDBACK_STYLE.shadowOffsetY, COMBO_FEEDBACK_STYLE.shadowColor, COMBO_FEEDBACK_STYLE.shadowBlur, true, true);
 
     this.gameOverText = this.add
       .text(width / 2, this.playfieldTop + 176, "Game Over", {
@@ -593,11 +620,15 @@ export class GameScene extends Phaser.Scene {
       this.updateHoldPreview();
     });
 
-    this.pointerX = width / 2;
-  }
+          return;
+        }
 
   private registerCollisions(): void {
     this.matter.world.on("collisionstart", (event: Phaser.Physics.Matter.Events.CollisionStartEvent) => {
+        if (this.dangerState.isGameOver) {
+          return;
+        }
+
       event.pairs.forEach((pair) => {
         const leftBody = pair.bodyA.gameObject as BallBody | undefined;
         const rightBody = pair.bodyB.gameObject as BallBody | undefined;
@@ -630,13 +661,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private processPendingMerges(): void {
+  private processPendingMerges(): boolean {
+    let resolvedMerges = false;
+
     while (true) {
       const shifted = shiftNextMerge(this.mergeQueue);
       this.mergeQueue = shifted.queue;
 
       if (!shifted.next) {
-        return;
+        return resolvedMerges;
       }
 
       const left = this.balls.get(shifted.next.leftId);
@@ -652,11 +685,16 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
 
+      resolvedMerges = true;
       this.resolveMerge(left, right, shifted.next.resultLevel, shifted.next.scoreGained);
     }
   }
 
   private resolveMerge(left: CatBall, right: CatBall, resultLevel: number, scoreGained: number): void {
+    const comboResult = consumeComboMerge(this.comboState);
+    this.comboState = comboResult.nextState;
+    const baseScore = scoreGained || getScoreForMerge(resultLevel);
+    const awardedScore = baseScore + comboResult.bonus;
     const mergedRadius = getCatRadius(resultLevel);
     const placement = getMergedSpawnPlacement({
       leftX: left.body.x,
@@ -681,8 +719,14 @@ export class GameScene extends Phaser.Scene {
       this.showMergeRing(placement.x, placement.y, merged.radius);
     }
 
-    this.showScoreFloat(placement.x, placement.y - 28, scoreGained || getScoreForMerge(resultLevel));
-    this.runState = awardScore(this.runState, scoreGained || getScoreForMerge(resultLevel));
+    if (comboResult.shouldShowCombo) {
+      this.showComboFeedback(comboResult.nextState.comboCount, comboResult.bonus);
+    } else {
+      this.clearComboFeedback();
+    }
+
+    this.showScoreFloat(placement.x, placement.y - 28, awardedScore);
+    this.runState = awardScore(this.runState, awardedScore);
   }
 
   private handleToolButton(kind: ToolKind): void {
@@ -842,6 +886,49 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private getComboFeedbackY(): number {
+    const span = this.playfieldBottom - this.playfieldTop;
+    return this.playfieldTop + Math.max(COMBO_FEEDBACK_STYLE.minY, Math.min(COMBO_FEEDBACK_STYLE.maxY, span * COMBO_FEEDBACK_STYLE.playfieldRatio));
+  }
+
+  private showComboFeedback(comboCount: number, bonus: number): void {
+    if (!this.comboText) {
+      return;
+    }
+
+    const bonusLine = bonus > 0 ? `
+BONUS +${bonus}` : "";
+    const color = comboCount >= 5 ? COMBO_FEEDBACK_STYLE.peakColor : comboCount >= 4 ? COMBO_FEEDBACK_STYLE.hotColor : COMBO_FEEDBACK_STYLE.baseColor;
+    this.tweens.killTweensOf(this.comboText);
+    this.comboText
+      .setText(`${comboCount} COMBO${bonusLine}`)
+      .setPosition(this.scale.width / 2, this.getComboFeedbackY())
+       .setScale(COMBO_FEEDBACK_STYLE.enterScale)
+      .setAlpha(1)
+      .setColor(color)
+      .setVisible(true);
+
+    this.tweens.add({
+      targets: this.comboText,
+      scaleX: 1,
+      scaleY: 1,
+      y: this.getComboFeedbackY() - COMBO_FEEDBACK_STYLE.enterOffsetY,
+      duration: COMBO_FEEDBACK_STYLE.enterDurationMs,
+      ease: "Back.Out",
+    });
+  }
+
+  private clearComboFeedback(): void {
+    if (!this.comboText) {
+      return;
+    }
+
+    this.tweens.killTweensOf(this.comboText);
+    this.comboText.setText("");
+    this.comboText.setAlpha(0);
+    this.comboText.setVisible(false);
+  }
+
   private refreshHud(): void {
     this.scoreText?.setText(String(this.runState.score));
     const unlock = getUnlockProgress(this.runState.score);
@@ -972,6 +1059,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.balls.clear();
     this.mergeQueue = createMergeQueue();
+    this.comboState = createComboState();
     this.runState = createRunState(Date.now());
     this.toolState = createToolState();
     this.dangerState = createDangerState();
@@ -981,6 +1069,7 @@ export class GameScene extends Phaser.Scene {
     this.gameOverRestartButton?.setVisible(false);
     this.gameOverRestartText?.setVisible(false);
     this.targetHintText?.setVisible(false);
+    this.clearComboFeedback();
     this.refreshHud();
     this.redrawAimLine();
     this.updateHoldPreview();
@@ -1045,6 +1134,8 @@ export class GameScene extends Phaser.Scene {
     });
   }
 }
+
+
 
 
 

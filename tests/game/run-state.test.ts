@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { DROP_COOLDOWN_MS, SCORE_UNLOCKS } from "../../src/game/systems/gameplayTuning";
 import {
   getCatDefinition,
   getDropVariantPool,
@@ -31,7 +32,7 @@ describe("run state", () => {
 
     expect(result.droppedCat).toEqual(previousNext);
     expect(result.nextState.queuedNext.level).toBe(1);
-    expect(result.nextState.cooldownMs).toBe(180);
+    expect(result.nextState.cooldownMs).toBe(DROP_COOLDOWN_MS);
   });
 
   test("cannot drop again while cooldown is active", () => {
@@ -40,16 +41,17 @@ describe("run state", () => {
     const secondDrop = dropCurrentCat(firstDrop.nextState);
 
     expect(secondDrop.droppedCat).toBeNull();
-    expect(secondDrop.nextState.cooldownMs).toBe(180);
+    expect(secondDrop.nextState.cooldownMs).toBe(DROP_COOLDOWN_MS);
   });
 
   test("cooldown ticks down over time", () => {
     const state = createRunState(123);
     const dropped = dropCurrentCat(state);
 
-    const afterTick = tickRunState(dropped.nextState, 80);
+    const tickDelta = 80;
+    const afterTick = tickRunState(dropped.nextState, tickDelta);
 
-    expect(afterTick.cooldownMs).toBe(100);
+    expect(afterTick.cooldownMs).toBe(DROP_COOLDOWN_MS - tickDelta);
   });
 
   test("awards score without changing queued next or cooldown", () => {
@@ -61,22 +63,17 @@ describe("run state", () => {
     expect(next.cooldownMs).toBe(state.cooldownMs);
   });
 
-  test("unlocks higher direct-drop levels as score increases, capped at level 8", () => {
-    expect(getUnlockedMaxDropLevel(0)).toBe(1);
-    expect(getUnlockedMaxDropLevel(60)).toBe(2);
-    expect(getUnlockedMaxDropLevel(180)).toBe(3);
-    expect(getUnlockedMaxDropLevel(420)).toBe(4);
-    expect(getUnlockedMaxDropLevel(900)).toBe(5);
-    expect(getUnlockedMaxDropLevel(1800)).toBe(6);
-    expect(getUnlockedMaxDropLevel(3200)).toBe(7);
-    expect(getUnlockedMaxDropLevel(5200)).toBe(8);
+  test("unlocks higher direct-drop levels more gradually, capped at level 8", () => {
+    for (const unlock of SCORE_UNLOCKS) {
+      expect(getUnlockedMaxDropLevel(unlock.minScore)).toBe(unlock.maxLevel);
+    }
     expect(getUnlockedMaxDropLevel(999999)).toBe(8);
   });
 
   test("reports unlock progress toward the next direct-drop tier", () => {
     expect(getUnlockProgress(0)).toMatchObject({ currentMaxLevel: 1, nextMaxLevel: 2, progressRatio: 0 });
-    expect(getUnlockProgress(30).progressRatio).toBeCloseTo(0.5, 1);
-    expect(getUnlockProgress(120)).toMatchObject({ currentMaxLevel: 2, nextMaxLevel: 3 });
+    expect(getUnlockProgress(SCORE_UNLOCKS[1].minScore / 2).progressRatio).toBeCloseTo(0.5, 1);
+    expect(getUnlockProgress((SCORE_UNLOCKS[1].minScore + SCORE_UNLOCKS[2].minScore) / 2)).toMatchObject({ currentMaxLevel: 2, nextMaxLevel: 3 });
     expect(getUnlockProgress(9000)).toMatchObject({ currentMaxLevel: 8, nextMaxLevel: null, progressRatio: 1 });
   });
 

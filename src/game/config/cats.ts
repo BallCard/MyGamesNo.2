@@ -17,16 +17,7 @@ export type UnlockProgress = {
   progressRatio: number;
 };
 
-const SCORE_UNLOCKS = [
-  { minScore: 0, maxLevel: 1 },
-  { minScore: 60, maxLevel: 2 },
-  { minScore: 180, maxLevel: 3 },
-  { minScore: 420, maxLevel: 4 },
-  { minScore: 900, maxLevel: 5 },
-  { minScore: 1800, maxLevel: 6 },
-  { minScore: 3200, maxLevel: 7 },
-  { minScore: 5200, maxLevel: 8 }
-] as const;
+import { SCORE_UNLOCKS } from "../systems/gameplayTuning";
 
 const CAT_RADII = [20, 22, 24, 27, 30, 34, 39, 45, 52, 60, 69, 79] as const;
 

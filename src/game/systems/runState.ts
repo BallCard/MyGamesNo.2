@@ -1,4 +1,5 @@
-﻿import { getDropVariantPool, getUnlockedMaxDropLevel, type QueuedCat } from "../config/cats";
+import { getDropVariantPool, getUnlockedMaxDropLevel, type QueuedCat } from "../config/cats";
+import { DROP_COOLDOWN_MS } from "./gameplayTuning";
 
 export type RunState = {
   score: number;
@@ -11,8 +12,6 @@ export type DropResult = {
   droppedCat: QueuedCat | null;
   nextState: RunState;
 };
-
-const DROP_COOLDOWN_MS = 180;
 
 function nextSeed(seed: number): number {
   return (seed * 1664525 + 1013904223) >>> 0;
