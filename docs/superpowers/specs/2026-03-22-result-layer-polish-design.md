@@ -128,8 +128,8 @@ This iteration should refine presentation, not alter the checkpoint architecture
 During result mode, foreground ownership must be singular:
 
 - the DOM result layer owns the hero score presentation and all foreground result messaging
-- the persistent header may remain mounted only as a background shell, never as a competing foreground score surface
-- if the header score remains visible, it must mirror the same frozen payload and be visually subordinate to the result card
+- the persistent header remains mounted as a background shell so the screen still feels connected to the run that just ended
+- the header score remains visible in a visually subordinate state and must never compete with the result card hero score
 
 ### Single source of truth
 
@@ -144,7 +144,7 @@ Payload remains:
 That payload is the only allowed source for result-mode score display. This means:
 
 - the poster card hero score reads only from the frozen payload
-- any header score that remains visible must mirror that same frozen payload
+- the still-visible header score must mirror that same frozen payload
 - no live gameplay score or peak-level state may continue updating once result mode begins
 
 ### Expansion seam
@@ -174,7 +174,7 @@ Add or preserve coverage for:
 - primary action still wired to restart
 - placeholder action renders as disabled and is not bound to gameplay commands
 - tool buttons are not rendered in result mode
-- header score matches frozen result payload while result mode is active
+- visible header score matches the frozen result payload while result mode is active
 
 ## Success Criteria
 
