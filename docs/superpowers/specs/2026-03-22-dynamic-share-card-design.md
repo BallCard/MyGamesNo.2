@@ -43,10 +43,16 @@ Chosen direction:
 The MVP preview should provide:
 
 - a large visual preview of the generated share card
-- one save/export action
+- one primary `Share` action
 - one close/back action
 
-The preview should not yet attempt direct posting to WeChat, X, or other platforms.
+The preview should not yet attempt direct posting to WeChat, X, or other platform-specific APIs.
+
+Primary share behavior:
+
+- prefer native system share when the browser supports it
+- if native share is unavailable, fall back to downloading the generated image locally
+- the preview should expose this through one user-facing action, not two separate export buttons
 
 ### Visual hierarchy
 
@@ -72,7 +78,7 @@ Use three score bands.
 
 - cat and score appear in a balanced side-by-side interaction
 - composition should feel confident and stable
-- this is the default °∞solid run°± share pose
+- this is the default ‚Äúsolid run‚Äù share pose
 
 ### High score band: `100,000+`
 
@@ -113,12 +119,19 @@ The share card should be a separate template from the result poster.
 
 Recommended structure:
 
+- fixed `9:16` vertical card ratio for MVP
 - warm branded background with light texture or shape treatment
 - central cat hero area
 - score placed relative to the cat according to pose rules
 - short copy line placed near the cat-score interaction cluster
 - compact support row for `Peak Lv.` and `NEW BEST`
 - small bottom brand mark
+
+Rendering constraints:
+
+- keep a consistent safe area around all text and badges so export remains readable on mobile share surfaces
+- if copy becomes too long, clamp to a single line and prefer shorter policy copy rather than wrapping into paragraphs
+- cat art should scale to fit the pose zone without cropping the primary silhouette in MVP
 
 ### Cat-first composition
 
@@ -156,10 +169,9 @@ Introduce a dedicated share-card presentation unit.
 
 Responsibilities:
 
-- map frozen result data into a score band
-- choose the corresponding cat-score composition mode
+- consume a precomputed share-card view model
 - render the share-card preview
-- provide save/export surface and close action
+- provide share/download fallback behavior and close action
 
 It should not own:
 
@@ -176,7 +188,9 @@ Recommended policy responsibilities:
 - score band classification
 - pose mode selection
 - short copy selection
-- optional badge visibility helpers
+- badge visibility rules
+- score anchor/layout intent
+- return a complete share-card view model that the renderer can consume directly
 
 ## Export Behavior
 
@@ -185,13 +199,16 @@ MVP export behavior should be practical and local.
 Preferred path:
 
 - render the share card in a dedicated DOM preview layer
-- provide a save/export action that converts the card into an image for local saving or sharing
+- convert that share card into an image asset for export
+- pressing `Share` should first try native system share if available
+- if native system share is unavailable, the same action should fall back to local image download
 
-If a browser capability fallback is needed, it should degrade to the simplest local-save path rather than blocking the feature entirely.
+The fallback must be automatic under the same button, not a separate user-facing flow.
 
 ## Interaction Rules
 
-- the share preview opens from the result layer and returns to it cleanly on close
+- the share preview is a strict modal above the result layer
+- the result layer remains visible underneath as background context but is fully inert while the preview is open
 - the result payload remains frozen while preview is open
 - closing the preview must not reset the run
 - restart remains available only after leaving the preview or from the result layer itself
@@ -201,7 +218,7 @@ If a browser capability fallback is needed, it should degrade to the simplest lo
 
 Add or update coverage for:
 
-- score band classification for `0-39999`, `40000-99999`, and `100000+`
+- score band classification for `0-39999`, `40000-99999`, and `100000+`, including boundary values `39999`, `40000`, `99999`, and `100000`
 - correct pose/copy mode selection per band
 - result page secondary action changes from placeholder to `Share`
 - share preview opens from frozen result data and closes cleanly
