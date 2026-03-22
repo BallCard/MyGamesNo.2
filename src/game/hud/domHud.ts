@@ -20,6 +20,9 @@ function assetUrl(assetKey: string): string {
 }
 
 function renderTools(state: HudState, side: "left" | "right"): string {
+  if (state.result) {
+    return "";
+  }
   const tools = side === "left" ? TOOL_ORDER.slice(0, 2) : TOOL_ORDER.slice(2);
   return tools
     .map((tool) => {
@@ -36,9 +39,49 @@ function renderTools(state: HudState, side: "left" | "right"): string {
     .join("");
 }
 
-function render(state: HudState): string {
+function renderResultOverlay(state: HudState): string {
+  if (!state.result) {
+    return "";
+  }
+
+  const headline = state.result.isNewBest ? "NEW BEST" : "RUN COMPLETE";
+  const label = state.result.isNewBest ? "PERSONAL BEST" : "FINAL SCORE";
+
   return `
-    <div class="game-hud" aria-label="game-hud">
+    <div class="hud-result-overlay" aria-label="result-overlay">
+      <div class="hud-result-card">
+        <div class="hud-result-eyebrow${state.result.isNewBest ? " is-best" : ""}">${headline}</div>
+        <div class="hud-result-score">${state.result.score}</div>
+        <div class="hud-result-label">${label}</div>
+        <div class="hud-result-stats">
+          <div class="hud-result-stat-card">
+            <div class="hud-result-stat-label">SCORE</div>
+            <div class="hud-result-stat-value">${state.result.score}</div>
+          </div>
+          <div class="hud-result-stat-card">
+            <div class="hud-result-stat-label">PEAK LV</div>
+            <div class="hud-result-stat-value">Lv.${state.result.peakLevel}</div>
+          </div>
+        </div>
+        <button class="hud-result-restart" type="button" data-action="restart-result">Restart</button>
+      </div>
+    </div>
+  `;
+}
+
+function render(state: HudState): string {
+  const resultActive = Boolean(state.result);
+  const restartMarkup = resultActive
+    ? '<div class="hud-restart-wrap is-hidden"></div>'
+    : `
+        <div class="hud-restart-wrap">
+          <button class="hud-orb hud-restart" type="button" data-action="restart" aria-label="Restart">
+            <span>&#8635;</span>
+          </button>
+        </div>`;
+
+  return `
+    <div class="game-hud${resultActive ? " is-game-over" : ""}" aria-label="game-hud">
       <header class="hud-header">
         <div class="hud-next">
           <div class="hud-orb hud-next-orb">
@@ -57,11 +100,7 @@ function render(state: HudState): string {
             </div>
           </div>
         </div>
-        <div class="hud-restart-wrap">
-          <button class="hud-orb hud-restart" type="button" data-action="restart" aria-label="Restart">
-            <span>&#8635;</span>
-          </button>
-        </div>
+        ${restartMarkup}
       </header>
       <aside class="hud-tools hud-tools-left">
         ${renderTools(state, "left")}
@@ -69,6 +108,7 @@ function render(state: HudState): string {
       <aside class="hud-tools hud-tools-right">
         ${renderTools(state, "right")}
       </aside>
+      ${renderResultOverlay(state)}
     </div>
   `;
 }
@@ -86,6 +126,11 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge): () => void {
     const restartButton = root.querySelector<HTMLElement>('[data-action="restart"]');
     if (restartButton) {
       bindPressAction(restartButton, () => bridge.restart());
+    }
+
+    const resultRestartButton = root.querySelector<HTMLElement>('[data-action="restart-result"]');
+    if (resultRestartButton) {
+      bindPressAction(resultRestartButton, () => bridge.restart());
     }
 
     root.querySelectorAll<HTMLElement>('[data-tool]').forEach((button) => {

@@ -38,4 +38,26 @@ describe("dom hud", () => {
     expect(restart).not.toHaveBeenCalled();
     unmount();
   });
+
+  test("renders result overlay and hides tool buttons when result data is published", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const root = document.getElementById("root") as HTMLElement;
+    const bridge = createHudBridge();
+
+    const unmount = mountGameHud(root, bridge);
+    bridge.publish({
+      isGameOver: true,
+      result: {
+        score: 22670,
+        peakLevel: 11,
+        isNewBest: false,
+      },
+    });
+
+    expect(root.querySelector('[aria-label="result-overlay"]')).not.toBeNull();
+    expect(root.querySelector('[data-tool="bomb"]')).toBeNull();
+    expect(root.textContent).toContain("RUN COMPLETE");
+    expect(root.textContent).toContain("22670");
+    unmount();
+  });
 });

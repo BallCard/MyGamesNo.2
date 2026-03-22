@@ -23,13 +23,14 @@ import {
   type ComboState
 } from "../systems/comboState";
 import { mergeCatLevels } from "../systems/mergeSystem";
-import { COMBO_FEEDBACK_STYLE } from "../systems/gameplayTuning";
+import { COMBO_FEEDBACK_STYLE, DANGER_FEEDBACK_STYLE } from "../systems/gameplayTuning";
 import {
   getMergeFeedbackStyle,
   getMergedSpawnPlacement,
   getMergeSpawnPolicy
 } from "../systems/physicsPolicy";
 import { getPointerUpSuppression, resolvePointerDownSuppression, shouldDropOnPointerUp, type InputActionSource, type PointerUpSuppression } from "../systems/inputPolicy";
+import { buildResultPayload, type ResultPayload } from "../systems/resultState";
 import { getGameUiLayout, getPreviewSpawnY, type GameUiLayout } from "../systems/uiPolicy";
 import {
   awardScore,
@@ -73,6 +74,33 @@ type ToolButton = {
   count: Phaser.GameObjects.Text;
 };
 
+const BEST_SCORE_KEY = "zju-cat-merge:best-score";
+
+function readStoredBestScore(): number {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return 0;
+    }
+
+    const value = Number(window.localStorage.getItem(BEST_SCORE_KEY) ?? "0");
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStoredBestScore(score: number): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+
+    window.localStorage.setItem(BEST_SCORE_KEY, String(Math.max(0, score)));
+  } catch {
+    // Ignore storage failures; result flow should still work in-memory.
+  }
+}
+
 export class GameScene extends Phaser.Scene {
   private runState = createRunState(12345);
   private toolState: ToolState = createToolState();
@@ -91,13 +119,12 @@ export class GameScene extends Phaser.Scene {
   private cooldownText?: Phaser.GameObjects.Text;
   private scoreSubtitleText?: Phaser.GameObjects.Text;
   private dangerFill?: Phaser.GameObjects.Rectangle;
+  private dangerGlow?: Phaser.GameObjects.Rectangle;
+  private dangerLine?: Phaser.GameObjects.Line;
   private aimLine?: Phaser.GameObjects.Graphics;
   private comboText?: Phaser.GameObjects.Text;
-  private gameOverText?: Phaser.GameObjects.Text;
   private restartButton?: Phaser.GameObjects.Rectangle;
   private restartButtonText?: Phaser.GameObjects.Text;
-  private gameOverRestartButton?: Phaser.GameObjects.Rectangle;
-  private gameOverRestartText?: Phaser.GameObjects.Text;
   private targetHintText?: Phaser.GameObjects.Text;
   private redLineY = 248;
   private aimLineEndY = 286;
@@ -116,6 +143,9 @@ export class GameScene extends Phaser.Scene {
   private uiLayout?: GameUiLayout;
   private hudBridge?: HudBridge;
   private useDomHud = false;
+  private highestLevelReached = 1;
+  private bestScore = 0;
+  private resultPayload?: ResultPayload;
 
   constructor(bridge?: HudBridge) {
     super("game");
@@ -137,6 +167,8 @@ export class GameScene extends Phaser.Scene {
     this.redLineY = this.playfieldTop + 144;
     this.aimLineEndY = this.redLineY + 38;
     this.previewSpawnY = getPreviewSpawnY(this.playfieldTop, this.redLineY);
+    this.highestLevelReached = this.runState.queuedNext.level;
+    this.bestScore = readStoredBestScore();
 
     this.hudBridge?.bindControls({
       restartRound: () => this.restartRoundFromHud(),
@@ -180,10 +212,8 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (this.dangerState.isGameOver) {
-      if (this.gameOverText && !this.gameOverText.visible) {
-        this.gameOverText.setVisible(true);
-        this.gameOverRestartButton?.setVisible(true);
-        this.gameOverRestartText?.setVisible(true);
+      if (!this.resultPayload) {
+        this.freezeResultPayload();
       }
       this.toolState = cancelTargetTool(this.toolState);
       this.mergeQueue = createMergeQueue();
@@ -237,7 +267,8 @@ export class GameScene extends Phaser.Scene {
         .setDepth(9)
         .setVisible(false);
 
-      this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, 0xd96c5f, 0.85).setLineWidth(2);
+      this.dangerGlow = this.add.rectangle(width / 2, this.redLineY, width - 24, DANGER_FEEDBACK_STYLE.glowHeight, DANGER_FEEDBACK_STYLE.lowColor, 0).setDepth(2).setVisible(false);
+      this.dangerLine = this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, DANGER_FEEDBACK_STYLE.lowColor, DANGER_FEEDBACK_STYLE.lineBaseAlpha).setLineWidth(DANGER_FEEDBACK_STYLE.lineBaseWidth);
 
       this.holdPreviewBase = this.add.image(width / 2, this.previewSpawnY, "cat-ball-base").setDisplaySize(56, 56).setTint(0xfff4e8);
       this.holdPreviewFace = this.add.image(width / 2, this.previewSpawnY, "cat-1").setDisplaySize(40, 40);
@@ -266,40 +297,6 @@ export class GameScene extends Phaser.Scene {
         .setVisible(false);
       this.comboText.setShadow(0, COMBO_FEEDBACK_STYLE.shadowOffsetY, COMBO_FEEDBACK_STYLE.shadowColor, COMBO_FEEDBACK_STYLE.shadowBlur, true, true);
 
-      this.gameOverText = this.add
-        .text(width / 2, this.playfieldTop + 176, "Game Over", {
-          color: "#5b3a29",
-          fontFamily: "Microsoft YaHei UI",
-          fontSize: "28px",
-          fontStyle: "bold",
-          align: "center",
-          backgroundColor: "rgba(255,250,242,0.88)",
-        })
-        .setOrigin(0.5)
-        .setDepth(10)
-        .setPadding(18, 12, 18, 12)
-        .setVisible(false);
-
-      this.gameOverRestartButton = this.add
-        .rectangle(width / 2, this.playfieldTop + 236, 142, 38, 0xf2a65a, 0.98)
-        .setDepth(10)
-        .setVisible(false)
-        .setInteractive({ useHandCursor: true });
-      this.gameOverRestartText = this.add
-        .text(width / 2, this.playfieldTop + 236, "Restart", {
-          color: "#fff9f2",
-          fontFamily: "Microsoft YaHei UI",
-          fontSize: "16px",
-          fontStyle: "bold",
-        })
-        .setOrigin(0.5)
-        .setDepth(11)
-        .setVisible(false);
-      this.gameOverRestartButton.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
-        event.stopPropagation();
-        this.pointerUpSuppression = getPointerUpSuppression("playfield")
-        this.resetRound("playfield");
-      });
 
       this.aimLine = this.add.graphics();
       return;
@@ -428,7 +425,8 @@ export class GameScene extends Phaser.Scene {
       .setDepth(9)
       .setVisible(false);
 
-    this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, 0xd96c5f, 0.85).setLineWidth(2);
+    this.dangerGlow = this.add.rectangle(width / 2, this.redLineY, width - 24, DANGER_FEEDBACK_STYLE.glowHeight, DANGER_FEEDBACK_STYLE.lowColor, 0).setDepth(2).setVisible(false);
+    this.dangerLine = this.add.line(width / 2, this.redLineY, 0, 0, width - 24, 0, DANGER_FEEDBACK_STYLE.lowColor, DANGER_FEEDBACK_STYLE.lineBaseAlpha).setLineWidth(DANGER_FEEDBACK_STYLE.lineBaseWidth);
 
     this.createToolButton(layout.tools.leftX, layout.tools.topY, "shake", "??", "SHAKE");
     this.createToolButton(layout.tools.leftX, layout.tools.topY + layout.tools.gapY, "hammer", "??", "HAMMER");
@@ -462,42 +460,22 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
     this.comboText.setShadow(0, COMBO_FEEDBACK_STYLE.shadowOffsetY, COMBO_FEEDBACK_STYLE.shadowColor, COMBO_FEEDBACK_STYLE.shadowBlur, true, true);
 
-    this.gameOverText = this.add
-      .text(width / 2, this.playfieldTop + 176, "Game Over", {
-        color: "#5b3a29",
-        fontFamily: "Microsoft YaHei UI",
-        fontSize: "28px",
-        fontStyle: "bold",
-        align: "center",
-        backgroundColor: "rgba(255,250,242,0.88)",
-      })
-      .setOrigin(0.5)
-      .setDepth(10)
-      .setPadding(18, 12, 18, 12)
-      .setVisible(false);
-
-    this.gameOverRestartButton = this.add
-      .rectangle(width / 2, this.playfieldTop + 236, 142, 38, 0xf2a65a, 0.98)
-      .setDepth(10)
-      .setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this.gameOverRestartText = this.add
-      .text(width / 2, this.playfieldTop + 236, "Restart", {
-        color: "#fff9f2",
-        fontFamily: "Microsoft YaHei UI",
-        fontSize: "16px",
-        fontStyle: "bold",
-      })
-      .setOrigin(0.5)
-      .setDepth(11)
-      .setVisible(false);
-    this.gameOverRestartButton.on("pointerdown", (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
-      event.stopPropagation();
-      this.pointerUpSuppression = getPointerUpSuppression("playfield")
-      this.resetRound("playfield");
-    });
 
     this.aimLine = this.add.graphics();
+  }
+
+  private freezeResultPayload(): void {
+    const payload = buildResultPayload({
+      score: this.runState.score,
+      peakLevel: this.highestLevelReached,
+      bestScore: this.bestScore,
+    });
+
+    this.resultPayload = payload;
+    if (payload.isNewBest) {
+      this.bestScore = payload.score;
+      writeStoredBestScore(payload.score);
+    }
   }
 
   private createToolButton(x: number, y: number, kind: ToolKind, emoji: string, labelText: string): void {
@@ -619,16 +597,14 @@ export class GameScene extends Phaser.Scene {
       this.pointerUpSuppression = "none";
       this.updateHoldPreview();
     });
-
-          return;
-        }
+    this.pointerX = width / 2;
+  }
 
   private registerCollisions(): void {
     this.matter.world.on("collisionstart", (event: Phaser.Physics.Matter.Events.CollisionStartEvent) => {
-        if (this.dangerState.isGameOver) {
-          return;
-        }
-
+      if (this.dangerState.isGameOver) {
+        return;
+      }
       event.pairs.forEach((pair) => {
         const leftBody = pair.bodyA.gameObject as BallBody | undefined;
         const rightBody = pair.bodyB.gameObject as BallBody | undefined;
@@ -930,8 +906,16 @@ BONUS +${bonus}` : "";
   }
 
   private refreshHud(): void {
-    this.scoreText?.setText(String(this.runState.score));
-    const unlock = getUnlockProgress(this.runState.score);
+    const displayScore = this.resultPayload?.score ?? this.runState.score;
+    const result = this.resultPayload
+      ? {
+          score: this.resultPayload.score,
+          peakLevel: this.resultPayload.peakLevel,
+          isNewBest: this.resultPayload.isNewBest,
+        }
+      : null;
+    this.scoreText?.setText(String(displayScore));
+    const unlock = getUnlockProgress(displayScore);
     this.nextText?.setText(`Lv.${this.runState.queuedNext.level}`);
     this.unlockText?.setText(`Lv.${unlock.currentMaxLevel}`);
     this.cooldownText?.setText(unlock.nextMaxLevel ? `Lv.${unlock.nextMaxLevel}` : `Lv.${unlock.currentMaxLevel}`);
@@ -945,12 +929,37 @@ BONUS +${bonus}` : "";
     this.unlockFill?.setSize(((this.uiLayout?.header.progress.width ?? 156) - 22) * unlock.progressRatio, 12);
 
     const ratio = Phaser.Math.Clamp(this.dangerState.accumulatedMs / 2200, 0, 1);
+    const pulse = ratio >= DANGER_FEEDBACK_STYLE.pulseStartRatio ? (Math.sin(this.time.now / DANGER_FEEDBACK_STYLE.pulseSpeedMs) + 1) / 2 : 0;
+    const dangerColor = this.dangerState.isGameOver
+      ? DANGER_FEEDBACK_STYLE.highColor
+      : ratio >= 0.82
+        ? DANGER_FEEDBACK_STYLE.highColor
+        : ratio >= 0.55
+          ? DANGER_FEEDBACK_STYLE.mediumColor
+          : DANGER_FEEDBACK_STYLE.lowColor;
+    const fillHeight = Phaser.Math.Linear(DANGER_FEEDBACK_STYLE.fillBaseHeight, DANGER_FEEDBACK_STYLE.fillPeakHeight, ratio);
+    const glowAlpha = this.dangerState.isGameOver
+      ? DANGER_FEEDBACK_STYLE.glowHighAlpha
+      : ratio >= 0.82
+        ? DANGER_FEEDBACK_STYLE.glowHighAlpha
+        : ratio >= 0.55
+          ? DANGER_FEEDBACK_STYLE.glowMediumAlpha
+          : DANGER_FEEDBACK_STYLE.glowLowAlpha;
+
     this.dangerFill?.setVisible(ratio > 0);
-    this.dangerFill?.setSize((this.scale.width - 36) * ratio, 6);
-    this.dangerFill?.setFillStyle(this.dangerState.isGameOver ? 0xbf4c3f : 0xd96c5f, 0.96);
+    this.dangerFill?.setSize((this.scale.width - 36) * ratio, fillHeight);
+    this.dangerFill?.setFillStyle(dangerColor, 0.96);
+    this.dangerGlow?.setVisible(ratio > 0);
+    this.dangerGlow?.setSize(this.scale.width - 24, DANGER_FEEDBACK_STYLE.glowHeight);
+    this.dangerGlow?.setFillStyle(dangerColor, Math.min(0.48, glowAlpha + pulse * 0.08));
+    this.dangerLine?.setStrokeStyle(
+      DANGER_FEEDBACK_STYLE.lineBaseWidth + pulse * DANGER_FEEDBACK_STYLE.linePulseWidth,
+      dangerColor,
+      Math.min(1, DANGER_FEEDBACK_STYLE.lineBaseAlpha + pulse * DANGER_FEEDBACK_STYLE.linePulseAlpha),
+    );
 
     this.hudBridge?.publish({
-      score: this.runState.score,
+      score: displayScore,
       scoreLabel: "ZJU MERGE",
       nextLevel: this.runState.queuedNext.level,
       nextAssetKey: this.runState.queuedNext.assetKey,
@@ -961,17 +970,25 @@ BONUS +${bonus}` : "";
       activeTool: this.toolState.activeTargetTool,
       dangerRatio: ratio,
       isGameOver: this.dangerState.isGameOver,
+      result,
     });
 
     this.toolButtons.forEach((button) => {
       const isActive = this.toolState.activeTargetTool === button.kind;
       const count = this.toolState.counts[button.kind];
-      button.count.setText(`x${count}`);
-      button.background.setFillStyle(isActive ? 0xf8d8bb : 0xfffaf2, count > 0 ? 0.98 : 0.74);
-      button.shadow.setAlpha(count > 0 ? (isActive ? 0.28 : 0.18) : 0.08);
-      button.icon.setAlpha(count > 0 ? 1 : 0.38);
-      button.label.setAlpha(count > 0 ? 1 : 0.38);
-      button.count.setAlpha(count > 0 ? 0.9 : 0.45);
+      const resultVisible = Boolean(this.resultPayload);
+      const dimAlpha = resultVisible ? 0.1 : 1;
+      button.background.setDepth(resultVisible ? 3 : 6);
+      button.shadow.setDepth(resultVisible ? 2 : 5);
+      button.icon.setDepth(resultVisible ? 4 : 7);
+      button.label.setDepth(resultVisible ? 4 : 7);
+      button.count.setDepth(resultVisible ? 4 : 7);
+      button.count.setText(resultVisible ? "" : `x${count}`);
+      button.background.setFillStyle(isActive ? 0xf8d8bb : 0xfffaf2, (count > 0 ? (isActive ? 0.98 : 0.74) : 0.5) * dimAlpha);
+      button.shadow.setAlpha((count > 0 ? (isActive ? 0.28 : 0.18) : 0.08) * dimAlpha);
+      button.icon.setAlpha((count > 0 ? 1 : 0.38) * dimAlpha);
+      button.label.setAlpha((count > 0 ? 1 : 0.38) * dimAlpha);
+      button.count.setAlpha(resultVisible ? 0 : (count > 0 ? 0.9 : 0.45));
     });
 
     if (this.targetHintText) {
@@ -1061,13 +1078,12 @@ BONUS +${bonus}` : "";
     this.mergeQueue = createMergeQueue();
     this.comboState = createComboState();
     this.runState = createRunState(Date.now());
+    this.highestLevelReached = this.runState.queuedNext.level;
+    this.resultPayload = undefined;
     this.toolState = createToolState();
     this.dangerState = createDangerState();
     this.isAiming = false;
     this.pointerUpSuppression = getPointerUpSuppression(source);
-    this.gameOverText?.setVisible(false);
-    this.gameOverRestartButton?.setVisible(false);
-    this.gameOverRestartText?.setVisible(false);
     this.targetHintText?.setVisible(false);
     this.clearComboFeedback();
     this.refreshHud();
@@ -1108,6 +1124,7 @@ BONUS +${bonus}` : "";
 
     body.__ballId = ball.id;
     this.balls.set(ball.id, ball);
+    this.highestLevelReached = Math.max(this.highestLevelReached, queued.level);
 
     if (merged) {
       const policy = getMergeSpawnPolicy();
@@ -1128,9 +1145,13 @@ BONUS +${bonus}` : "";
   }
 
   private syncBallFaces(): void {
+    const boardAlpha = this.resultPayload ? 0.18 : 1;
+
     this.balls.forEach((ball) => {
       ball.face.setPosition(ball.body.x, ball.body.y);
       ball.face.setRotation(ball.body.rotation);
+      ball.face.setAlpha(boardAlpha);
+      ball.body.setAlpha(boardAlpha);
     });
   }
 }

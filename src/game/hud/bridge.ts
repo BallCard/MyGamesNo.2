@@ -1,4 +1,10 @@
-﻿import type { ToolKind } from "../systems/toolState";
+import type { ToolKind } from "../systems/toolState";
+
+export type HudResultState = {
+  score: number;
+  peakLevel: number;
+  isNewBest: boolean;
+};
 
 export type HudState = {
   score: number;
@@ -12,6 +18,7 @@ export type HudState = {
   activeTool: ToolKind | null;
   dangerRatio: number;
   isGameOver: boolean;
+  result: HudResultState | null;
 };
 
 export type HudControls = {
@@ -38,6 +45,7 @@ const DEFAULT_STATE: HudState = {
   activeTool: null,
   dangerRatio: 0,
   isGameOver: false,
+  result: null,
 };
 
 export type HudBridge = {

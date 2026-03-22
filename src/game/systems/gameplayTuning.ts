@@ -24,6 +24,24 @@ export const SCORE_UNLOCKS = [
   { minScore: 6800, maxLevel: 8 },
 ] as const;
 
+export const DANGER_FEEDBACK_STYLE = {
+  lowColor: 0xd96c5f,
+  mediumColor: 0xeb8b4d,
+  highColor: 0xbf4c3f,
+  lineBaseAlpha: 0.85,
+  linePulseAlpha: 0.45,
+  lineBaseWidth: 2,
+  linePulseWidth: 3,
+  glowHeight: 22,
+  glowLowAlpha: 0.08,
+  glowMediumAlpha: 0.18,
+  glowHighAlpha: 0.32,
+  pulseStartRatio: 0.55,
+  pulseSpeedMs: 120,
+  fillBaseHeight: 6,
+  fillPeakHeight: 10,
+} as const;
+
 export const COMBO_FEEDBACK_STYLE = {
   minY: 148,
   maxY: 208,
