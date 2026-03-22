@@ -45,6 +45,7 @@ The MVP preview should provide:
 - a large visual preview of the generated share card
 - one primary `Share` action
 - one close/back action
+- after a successful share or download fallback, show a light success hint and keep the preview open until the user closes it
 
 The preview should not yet attempt direct posting to WeChat, X, or other platform-specific APIs.
 

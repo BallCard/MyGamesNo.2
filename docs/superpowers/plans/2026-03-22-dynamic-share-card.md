@@ -309,7 +309,7 @@ In `dom-hud.test.ts`, inject a mocked export callback and assert the preview `Sh
 ```ts
 expect(exportSpy).toHaveBeenCalledTimes(1);
 expect(root.querySelector('[aria-label="share-preview"]')).not.toBeNull();
-expect(root.textContent).toContain('Saved') || expect(root.textContent).toContain('Shared');
+expect(root.textContent).toMatch(/Saved|Shared/);
 ```
 
 If startup coverage needs updating for the extra modal root, adjust `app-start.test.ts` expectations.
