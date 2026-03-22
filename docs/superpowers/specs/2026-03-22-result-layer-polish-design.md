@@ -51,8 +51,8 @@ Two variants remain required.
 
 The result layer should still read in this order:
 
-1. headline mood marker (`NEW BEST` or `RUN COMPLETE`)
-2. final score as the largest element
+1. final score as the largest and fastest-readable element
+2. headline mood marker (`NEW BEST` or `RUN COMPLETE`) as a compact emotional cue above it
 3. one short supporting label (`PERSONAL BEST` or `FINAL SCORE`)
 4. two stat cards: `Score` and `Peak Lv.`
 5. two-slot action area with one real action and one neutral placeholder
@@ -63,8 +63,10 @@ The bottom action zone should become a stable two-slot layout.
 
 - primary slot: `Restart`, fully interactive
 - secondary slot: a neutral placeholder button style, visually present but disabled
+- placeholder copy should stay generic, using `More Soon` for now
 - placeholder must not imply a committed feature direction yet
 - placeholder exists to establish future layout balance for share or leaderboard actions
+- placeholder must render with `aria-disabled="true"`, stay out of the tab order, and emit no commands
 
 ## Visual Design
 
@@ -100,7 +102,8 @@ The stat cards should read like badges embedded into the poster, not table cells
 
 The action row should feel intentional even before the second action is implemented.
 
-- place two aligned slots in a single row when space allows
+- place two aligned slots in a single row for the standard mobile layout
+- if horizontal space becomes too tight, keep equal widths by reducing internal padding first rather than wrapping into two rows in this iteration
 - keep `Restart` visually primary
 - make the placeholder subdued, disabled, and clearly non-interactive
 - do not add explanatory copy below the buttons
@@ -122,6 +125,12 @@ This iteration should refine presentation, not alter the checkpoint architecture
 - DOM HUD layer owns persistent HUD rendering
 - DOM result layer owns the end-screen foreground composition
 
+During result mode, foreground ownership must be singular:
+
+- the DOM result layer owns the hero score presentation and all foreground result messaging
+- the persistent header may remain mounted only as a background shell, never as a competing foreground score surface
+- if the header score remains visible, it must mirror the same frozen payload and be visually subordinate to the result card
+
 ### Single source of truth
 
 The result layer should continue to render from one frozen payload only.
@@ -132,7 +141,11 @@ Payload remains:
 - `peakLevel`
 - `isNewBest`
 
-The header score shown during result mode must come from that same frozen payload.
+That payload is the only allowed source for result-mode score display. This means:
+
+- the poster card hero score reads only from the frozen payload
+- any header score that remains visible must mirror that same frozen payload
+- no live gameplay score or peak-level state may continue updating once result mode begins
 
 ### Expansion seam
 
