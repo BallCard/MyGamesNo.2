@@ -6,9 +6,10 @@ Upgrade the current dynamic share-card flow from a functional prototype into a h
 
 This iteration should:
 
-- replace the current placeholder cat rendering with real cat image assets
+- replace the current placeholder cat rendering with real cat image assets for export and real cat frame assets for preview where available
 - preserve the existing low/mid/high score-band composition logic
 - keep the preview workflow intact while improving the exported output quality
+- allow the preview and export layers to use different rendering techniques while sharing the same composition rules
 - separate preview rendering from export rendering so the export no longer feels like a low-resolution page capture
 - keep the `Share` interaction model unchanged: native share first, automatic download fallback
 
@@ -21,7 +22,7 @@ This iteration should not yet include:
 
 ## Product Direction
 
-The feature goal is no longer just °∞generate a share card.°± It is to generate a share card that feels intentional enough to circulate.
+The feature goal is no longer just ‚Äúgenerate a share card.‚Äù It is to generate a share card that feels intentional enough to circulate.
 
 Chosen direction:
 
@@ -55,16 +56,19 @@ Use separate rendering responsibilities for preview and export.
 #### Preview layer
 
 - optimized for interactive viewing inside the app
-- can continue using current DOM-based layout
+- continues using the current DOM-based layout
+- may use a short multi-frame cat sequence from the same cat asset family to add lightweight motion
 - should be visually faithful to the final exported composition
 - does not need to equal final export pixel density
 
 #### Export layer
 
 - optimized for final image quality
+- is explicitly allowed to use a dedicated export-only canvas renderer
 - should render at a fixed high-resolution target
 - should not depend on the currently displayed preview size on screen
 - should produce a stable result across supported mobile browsers as much as practical
+- uses a single static high-resolution cat image rather than preview motion frames
 
 ### Export resolution
 
@@ -83,9 +87,16 @@ This iteration should replace the placeholder cat art with real project cat asse
 
 Requirements:
 
-- use a real cat image asset as the share-card hero
+- use a real cat image asset as the share-card hero in export output
 - keep one clear hero cat path for MVP rather than introducing a large asset matrix
+- support a matching preview asset family made of a few ordered frames for lightweight motion
 - preserve future flexibility to add more pose-specific assets later
+
+MVP asset contract:
+
+- export hero asset: one static PNG with transparency, suitable for `1080 x 1920` card rendering
+- preview hero assets: a small ordered frame set from the same cat family, also with transparency
+- if the real asset or preview frames fail to load, fall back to the current placeholder cat rendering rather than breaking share
 
 ### Pose implementation for MVP
 
@@ -93,7 +104,9 @@ Do not block the feature on having three perfect pose illustrations.
 
 Recommended first version:
 
-- use one real primary cat asset
+- use one real primary cat asset family
+- preview uses lightweight frame switching from that family
+- export uses one corresponding static hero image from that family
 - vary layout through position, scale, rotation, and score anchor rules per band
 - if additional real pose-specific assets already exist, they may be used, but they are not required for MVP
 
@@ -123,6 +136,7 @@ The `1080 x 1920` card should reserve clear margins so platform crops or UI over
 Requirements:
 
 - keep all critical content inside a stable inner safe area
+- use a default safe-area inset of `96px` left/right and `120px` top/bottom on the `1080 x 1920` export surface
 - score, cat face, badge, and short copy must all sit within that safe area
 - footer branding should remain visible without competing with the hero composition
 
@@ -136,7 +150,7 @@ Requirements:
 
 ### New export boundary
 
-Introduce a dedicated export rendering unit separate from the lightweight preview unit.
+Introduce a dedicated export rendering unit separate from the lightweight preview unit. Preview remains DOM-driven; export is allowed to be canvas-driven.
 
 Responsibilities of the export renderer:
 
@@ -169,9 +183,10 @@ The new high-resolution export renderer should only interpret that model at a la
 Preferred approach:
 
 - keep the preview renderer for UI
-- add a dedicated export renderer that creates a larger off-screen rendering target
+- add a dedicated export renderer that creates a larger off-screen canvas target
 - generate the final image blob from that off-screen target
 - pass that blob into the existing native-share-first export path
+- if real cat assets are unavailable during export, degrade to a placeholder-cat export card rather than failing the share action
 
 This avoids tying final image sharpness to viewport size.
 
@@ -181,7 +196,9 @@ Add or update coverage for:
 
 - export renderer uses fixed `1080 x 1920` output sizing
 - export path no longer depends on the preview element size for final image dimensions
-- real cat asset path is used instead of placeholder cat text/shape rendering
+- preview and export stay compositionally aligned, with only small detail-level differences allowed
+- real cat asset path is used instead of placeholder cat text/shape rendering when assets are available
+- placeholder-cat fallback still produces a working export when real assets fail to load
 - low/mid/high score-band composition rules still map correctly with the real cat asset
 - native share / download fallback still work with the new high-resolution export blob
 
