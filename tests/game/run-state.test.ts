@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+﻿import { describe, expect, test } from "vitest";
 
 import { DROP_COOLDOWN_MS, SCORE_UNLOCKS } from "../../src/game/systems/gameplayTuning";
 import {
@@ -74,7 +74,8 @@ describe("run state", () => {
     expect(getUnlockProgress(0)).toMatchObject({ currentMaxLevel: 1, nextMaxLevel: 2, progressRatio: 0 });
     expect(getUnlockProgress(SCORE_UNLOCKS[1].minScore / 2).progressRatio).toBeCloseTo(0.5, 1);
     expect(getUnlockProgress((SCORE_UNLOCKS[1].minScore + SCORE_UNLOCKS[2].minScore) / 2)).toMatchObject({ currentMaxLevel: 2, nextMaxLevel: 3 });
-    expect(getUnlockProgress(9000)).toMatchObject({ currentMaxLevel: 8, nextMaxLevel: null, progressRatio: 1 });
+    expect(getUnlockProgress(9000)).toMatchObject({ currentMaxLevel: 7, nextMaxLevel: 8 });
+    expect(getUnlockProgress(20000)).toMatchObject({ currentMaxLevel: 8, nextMaxLevel: null, progressRatio: 1 });
   });
 
   test("rollQueuedCat never exceeds the unlocked max level", () => {
@@ -106,3 +107,4 @@ describe("run state", () => {
     expect(getCatDefinition(1)?.assetKey).toBe("cat-1");
   });
 });
+

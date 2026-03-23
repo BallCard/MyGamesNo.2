@@ -4,7 +4,7 @@ import {
   CAT_DEFINITIONS,
   getCatDefinition,
   getNextCatLevel,
-  getScoreForMerge
+  getScoreForMerge,
 } from "../../src/game/config/cats";
 import { mergeCatLevels } from "../../src/game/systems/mergeSystem";
 
@@ -17,12 +17,12 @@ describe("mergeCatLevels", () => {
     expect(result.scoreGained).toBe(getScoreForMerge(4));
   });
 
-  test("allows the last meaningful merge from level 11 into level 12", () => {
-    const result = mergeCatLevels(11, 11);
+  test("allows the last meaningful merge from level 17 into level 18", () => {
+    const result = mergeCatLevels(17, 17);
 
     expect(result.merged).toBe(true);
-    expect(result.resultLevel).toBe(12);
-    expect(result.scoreGained).toBe(getScoreForMerge(12));
+    expect(result.resultLevel).toBe(18);
+    expect(result.scoreGained).toBe(getScoreForMerge(18));
   });
 
   test("does not merge cats with different levels", () => {
@@ -45,9 +45,11 @@ describe("mergeCatLevels", () => {
 });
 
 describe("cat configuration", () => {
-  test("returns a config entry for each level from 1 through 12", () => {
-    expect(CAT_DEFINITIONS).toHaveLength(12);
+  test("returns a config entry for each level from 1 through 18", () => {
+    expect(CAT_DEFINITIONS).toHaveLength(18);
     expect(getCatDefinition(1)?.assetKey).toBe("cat-1");
-    expect(getCatDefinition(12)?.assetKey).toBe("cat-12");
+    expect(getCatDefinition(13)?.assetKey).toBe("cat-8-v2");
+    expect(getCatDefinition(16)?.assetKey).toBe("cat-11-v2");
+    expect(getCatDefinition(18)?.assetKey).toBe("cat-12-v3");
   });
 });

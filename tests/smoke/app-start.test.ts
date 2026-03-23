@@ -1,4 +1,4 @@
-ï»¿import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../../src/main";
 
@@ -40,8 +40,8 @@ describe("createApp", () => {
 
     const preview = root?.querySelector<HTMLElement>('[aria-label="leaderboard-preview"]');
     expect(preview).not.toBeNull();
-    expect(preview?.textContent).toContain("æ€»æ¦œ");
-    expect(preview?.textContent).toContain("å‘¨æ¦œ");
+    expect(preview?.textContent).toContain("\u603b\u699c");
+    expect(preview?.textContent).toContain("\u5468\u699c");
   });
 
   test("renders a standalone home screen before entering gameplay", async () => {
@@ -85,12 +85,12 @@ describe("createApp", () => {
     const input = root?.querySelector<HTMLInputElement>('input[name="nickname"]');
     expect(input).not.toBeNull();
 
-    input!.value = "è€„è€‹çŽ‹è€…";
+    input!.value = "ë£ñóÍõÕß";
     input!.dispatchEvent(new Event("input", { bubbles: true }));
     root?.querySelector<HTMLButtonElement>('[data-action="save-nickname"]')?.click();
 
-    expect(root?.querySelector(".nick-value")?.textContent).toContain("è€„è€‹çŽ‹è€…");
-    expect(storage.get("zju-cat-merge:nickname")).toBe("è€„è€‹çŽ‹è€…");
+    expect(root?.querySelector(".nick-value")?.textContent).toContain("ë£ñóÍõÕß");
+    expect(storage.get("zju-cat-merge:nickname")).toBe("ë£ñóÍõÕß");
   });
 
   test("opens settings modal and persists toggles locally", async () => {
@@ -111,6 +111,19 @@ describe("createApp", () => {
     expect(storage.get("zju-cat-merge:settings")).toContain('"musicEnabled":false');
   });
 
+  test("renders the share lab when the query flag is present", async () => {
+    window.history.pushState({}, "", "/?shareLab=1");
+    document.body.innerHTML = `<div id="root"></div>`;
+    const root = document.querySelector<HTMLElement>("#root");
+
+    await createApp(root!, { startGame: false });
+
+    expect(root?.querySelector(".share-lab-screen")).not.toBeNull();
+    expect(root?.querySelector("[aria-label=\"share-lab-bands\"]")).not.toBeNull();
+    expect(root?.querySelector("[aria-label=\"share-lab-cats\"]")).not.toBeNull();
+    expect(root?.textContent).toContain("Share Card Lab");
+    window.history.pushState({}, "", "/");
+  });
   test("opens leaderboard modal from home actions", async () => {
     document.body.innerHTML = `<div id="root"></div>`;
     const root = document.querySelector<HTMLElement>("#root");
@@ -121,8 +134,8 @@ describe("createApp", () => {
 
     const leaderboardModal = root?.querySelector<HTMLElement>('[aria-label="leaderboard-modal"]');
     expect(leaderboardModal).not.toBeNull();
-    expect(leaderboardModal?.textContent).toContain("æ€»æ¦œ");
-    expect(leaderboardModal?.textContent).toContain("å‘¨æ¦œ");
+    expect(leaderboardModal?.textContent).toContain("\u603b\u699c");
+    expect(leaderboardModal?.textContent).toContain("\u5468\u699c");
   });
 });
 

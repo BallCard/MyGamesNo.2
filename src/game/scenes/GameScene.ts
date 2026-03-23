@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+﻿import Phaser from "phaser";
 
 import type { HudBridge } from "../hud/bridge";
 import {
@@ -671,7 +671,7 @@ export class GameScene extends Phaser.Scene {
     this.comboState = comboResult.nextState;
     const baseScore = scoreGained || getScoreForMerge(resultLevel);
     const awardedScore = baseScore + comboResult.bonus;
-    const mergedRadius = getCatRadius(resultLevel);
+    const mergedRadius = getCatRadius(resultLevel, this.rightWallX - this.leftWallX, this.playfieldBottom - this.playfieldTop);
     const placement = getMergedSpawnPlacement({
       leftX: left.body.x,
       leftY: left.body.y,
@@ -1097,7 +1097,7 @@ BONUS +${bonus}` : "";
     spawnY?: number,
     merged: boolean = false
   ): CatBall {
-    const radius = getCatRadius(queued.level);
+    const radius = getCatRadius(queued.level, this.rightWallX - this.leftWallX, this.playfieldBottom - this.playfieldTop);
     const x = Phaser.Math.Clamp(spawnX ?? this.pointerX, this.leftWallX + radius, this.rightWallX - radius);
     const y = spawnY ?? this.previewSpawnY;
 
@@ -1155,6 +1155,7 @@ BONUS +${bonus}` : "";
     });
   }
 }
+
 
 
 

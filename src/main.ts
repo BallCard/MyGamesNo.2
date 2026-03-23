@@ -1,7 +1,11 @@
-import "./styles.css";
+﻿import "./styles.css";
 
 import { createHudBridge, type HudBridge } from "./game/hud/bridge";
 import { mountGameHud } from "./game/hud/domHud";
+import { getCatDefinition, getCatRadius } from "./game/config/cats";
+import { buildShareCardModel } from "./game/share/shareCardPolicy";
+import { resolveShareCardAssets } from "./game/share/shareCardAssets";
+import { renderShareCardSurface } from "./game/share/shareCardPreview";
 
 type CreateGameImpl = (target: HTMLElement, bridge?: HudBridge) => unknown;
 type ModalType = "nickname" | "settings" | "leaderboard" | null;
@@ -25,13 +29,59 @@ type LeaderboardEntry = {
   highestLevel: number;
 };
 
+type ShareLabScenario = {
+  title: string;
+  score: number;
+  peakLevel: number;
+};
+
+
+type ShareLabVariant = {
+  id: string;
+  title: string;
+  subtitle: string;
+  surfaceClassName: string;
+};
+
+const SHARE_LAB_VARIANTS: ShareLabVariant[] = [
+  {
+    id: "sticker",
+    title: "Sticker Poster",
+    subtitle: "Overlaps, shadows, cutout energy.",
+    surfaceClassName: "share-card--sticker",
+  },
+  {
+    id: "editorial",
+    title: "Editorial Poster",
+    subtitle: "Sharper hierarchy and cleaner space.",
+    surfaceClassName: "share-card--editorial",
+  },
+  {
+    id: "arcade",
+    title: "Arcade Heat",
+    subtitle: "Hotter glow, bolder score drama.",
+    surfaceClassName: "share-card--arcade",
+  },
+];
+const SHARE_LAB_BAND_SCENARIOS: ShareLabScenario[] = [
+  { title: "Below 100K", score: 68000, peakLevel: 8 },
+  { title: "100K+", score: 138000, peakLevel: 12 },
+];
+
+const SHARE_LAB_CAT_SCENARIOS: ShareLabScenario[] = Array.from({ length: 12 }, (_, index) => ({
+  title: `Cat ${index + 1}`,
+  score: 68000,
+  peakLevel: index + 1,
+}));
+
+const LATE_LAB_LEVELS = [13, 14, 15, 16, 17, 18] as const;
+
 type AppState = {
   nickname: string;
   settings: AppSettings;
   modal: ModalType;
   leaderboardTab: LeaderboardTab;
 };
-
 const NICKNAME_KEY = "zju-cat-merge:nickname";
 const SETTINGS_KEY = "zju-cat-merge:settings";
 const DEFAULT_NICKNAME = "\u533f\u540d\u540c\u5b66";
@@ -215,6 +265,200 @@ function renderModal(state: AppState): string {
   return "";
 }
 
+
+function shouldOpenShareLab(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get("shareLab") === "1";
+}
+
+function shouldOpenLateLab(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get("lateLab") === "1";
+}
+
+function renderShareLabCard(scenario: ShareLabScenario, surfaceClassName = ""): string {
+  return `
+    <section class="share-lab-card-shell">
+      <div class="share-lab-card-header">
+        <strong>${scenario.title}</strong>
+        <span>${scenario.score.toLocaleString("zh-CN")} �� Lv.${scenario.peakLevel}</span>
+      </div>
+      ${renderShareCardSurface({
+        model: buildShareCardModel({ score: scenario.score, peakLevel: scenario.peakLevel, isNewBest: false }),
+        score: scenario.score,
+        peakLevel: scenario.peakLevel,
+        isNewBest: false,
+        assets: resolveShareCardAssets(scenario.peakLevel),
+        surfaceClassName,
+      })}
+    </section>
+  `;
+}
+
+function renderShareLabVariant(variant: ShareLabVariant): string {
+  return `
+    <section class="share-lab-variant" aria-label="share-lab-variant-${variant.id}">
+      <div class="share-lab-variant-header">
+        <strong>${variant.title}</strong>
+        <span>${variant.subtitle}</span>
+      </div>
+      <div class="share-lab-variant-grid">
+        ${SHARE_LAB_BAND_SCENARIOS.map((scenario) => renderShareLabCard(scenario, variant.surfaceClassName)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLateLabLevelCard(level: number): string {
+  const definition = getCatDefinition(level);
+  const radius = getCatRadius(level);
+
+  return `
+    <section class="late-lab-level-card">
+      <div class="late-lab-level-top">
+        <strong>Lv.${level}</strong>
+        <span>r ${radius}px</span>
+      </div>
+      <div class="late-lab-ball-wrap">
+        <div class="late-lab-ball" style="width:${radius * 2}px;height:${radius * 2}px;">
+          <img src="/assets/cats/${definition?.assetKey ?? "cat-12-v3"}.png" alt="Level ${level}" />
+        </div>
+      </div>
+      <div class="late-lab-meta">
+        <span>asset</span>
+        <strong>${definition?.assetKey ?? "missing"}</strong>
+      </div>
+    </section>
+  `;
+}
+
+function renderLateLabCrowding(): string {
+  const nodes = [13, 14, 15, 16, 17, 18]
+    .map((level, index) => {
+      const definition = getCatDefinition(level);
+      const radius = getCatRadius(level);
+      const size = radius * 2;
+      const left = [8, 40, 63, 14, 52, 27][index];
+      const top = [58, 14, 46, 132, 116, 184][index];
+      return `<div class="late-lab-crowd-ball" style="width:${size}px;height:${size}px;left:${left}%;top:${top}px;"><img src="/assets/cats/${definition?.assetKey ?? "cat-12-v3"}.png" alt="" /></div>`;
+    })
+    .join("");
+
+  return `
+    <section class="late-lab-scene-card">
+      <div class="late-lab-scene-head">
+        <strong>Crowding Test</strong>
+        <span>13-18 overlap and breathing room</span>
+      </div>
+      <div class="late-lab-scene late-lab-scene-crowd">
+        ${nodes}
+      </div>
+    </section>
+  `;
+}
+
+function renderLateLabLadder(): string {
+  return `
+    <section class="late-lab-scene-card">
+      <div class="late-lab-scene-head">
+        <strong>Late Ladder</strong>
+        <span>13-18 visual gradient and size readout</span>
+      </div>
+      <div class="late-lab-level-grid">
+        ${LATE_LAB_LEVELS.map((level) => renderLateLabLevelCard(level)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLateLabMergeTargets(): string {
+  const focusLevels = [16, 17, 18];
+  return `
+    <section class="late-lab-scene-card">
+      <div class="late-lab-scene-head">
+        <strong>Merge Target Read</strong>
+        <span>16-18 should feel like meaningful upgrades, not just scale inflation</span>
+      </div>
+      <div class="late-lab-focus-row">
+        ${focusLevels.map((level) => {
+          const definition = getCatDefinition(level);
+          const radius = getCatRadius(level);
+          return `
+            <div class="late-lab-focus-card">
+              <div class="late-lab-focus-ball" style="width:${radius * 2}px;height:${radius * 2}px;">
+                <img src="/assets/cats/${definition?.assetKey ?? "cat-12-v3"}.png" alt="Level ${level}" />
+              </div>
+              <strong>Lv.${level}</strong>
+              <span>radius ${radius}px</span>
+              <code>${definition?.assetKey ?? "missing"}</code>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLateLab(root: HTMLElement): void {
+  root.innerHTML = `
+    <main class="late-lab-screen">
+      <section class="late-lab-panel">
+        <header class="late-lab-header">
+          <div>
+            <h1 class="late-lab-title">Late Game Lab</h1>
+            <p class="late-lab-subtitle">Fast QA for levels 13-18: size curve, asset gradient, and crowding pressure.</p>
+          </div>
+          <a class="secondary-button late-lab-exit" href="/">Back Home</a>
+        </header>
+        ${renderLateLabLadder()}
+        ${renderLateLabMergeTargets()}
+        ${renderLateLabCrowding()}
+      </section>
+    </main>
+  `;
+}
+
+function renderShareLab(root: HTMLElement): void {
+  root.innerHTML = `
+    <main class="share-lab-screen">
+      <section class="share-lab-panel">
+        <header class="share-lab-header">
+          <div>
+            <h1 class="share-lab-title">Share Card Lab</h1>
+            <p class="share-lab-subtitle">Dev check for bands, cat assets, GIF preview, and static export mapping.</p>
+          </div>
+          <a class="secondary-button share-lab-exit" href="/">Back Home</a>
+        </header>
+        <section class="share-lab-section" aria-label="share-lab-bands">
+          <div class="share-lab-section-heading">
+            <strong>Band Check</strong>
+            <span>Below 100K / 100K+ layout split</span>
+          </div>
+          <div class="share-lab-grid share-lab-grid-bands">
+            ${SHARE_LAB_BAND_SCENARIOS.map((scenario) => renderShareLabCard(scenario)).join("")}
+          </div>
+        </section>
+        <section class="share-lab-section" aria-label="share-lab-cats">
+          <div class="share-lab-section-heading">
+            <strong>Cat Check</strong>
+            <span>Cat 1-12 GIF and asset stability</span>
+          </div>
+          <div class="share-lab-grid share-lab-grid-cats">
+            ${SHARE_LAB_CAT_SCENARIOS.map((scenario) => renderShareLabCard(scenario, "share-card--editorial")).join("")}
+          </div>
+        </section>
+      </section>
+    </main>
+  `;
+}
 function renderHomeScreen(root: HTMLElement, state: AppState): void {
   root.innerHTML = `
     <main class="home-screen">
@@ -365,6 +609,18 @@ export async function createApp(root: HTMLElement, options: AppOptions = {}): Pr
     });
   };
 
+  if (shouldOpenLateLab()) {
+    setScrollLock(false);
+    renderLateLab(root);
+    return;
+  }
+
+  if (shouldOpenShareLab()) {
+    setScrollLock(false);
+    renderShareLab(root);
+    return;
+  }
+
   if (options.startGame) {
     await enterGame();
     return;
@@ -377,3 +633,7 @@ const appRoot = document.querySelector<HTMLElement>("#app");
 if (appRoot) {
   void createApp(appRoot);
 }
+
+
+
+

@@ -1,27 +1,31 @@
 export const DROP_COOLDOWN_MS = 180;
 
 export const COMBO_WINDOW_MS = 1100;
+export const MAX_COMBO_COUNT = 8;
 
 export const COMBO_BONUS_BY_COUNT: Record<number, number> = {
   2: 20,
-  3: 60,
-  4: 120,
-  5: 200,
+  3: 40,
+  4: 70,
+  5: 110,
+  6: 160,
+  7: 220,
+  8: 300,
 };
 
-export const COMBO_BONUS_OVERFLOW_STEP = 120;
+export const COMBO_BONUS_OVERFLOW_STEP = 80;
 export const COMBO_BONUS_OVERFLOW_START_COUNT = 5;
 export const COMBO_BONUS_OVERFLOW_START_VALUE = COMBO_BONUS_BY_COUNT[COMBO_BONUS_OVERFLOW_START_COUNT] ?? 0;
 
 export const SCORE_UNLOCKS = [
   { minScore: 0, maxLevel: 1 },
-  { minScore: 80, maxLevel: 2 },
-  { minScore: 240, maxLevel: 3 },
-  { minScore: 560, maxLevel: 4 },
-  { minScore: 1200, maxLevel: 5 },
-  { minScore: 2400, maxLevel: 6 },
-  { minScore: 4200, maxLevel: 7 },
-  { minScore: 6800, maxLevel: 8 },
+  { minScore: 180, maxLevel: 2 },
+  { minScore: 520, maxLevel: 3 },
+  { minScore: 1160, maxLevel: 4 },
+  { minScore: 2280, maxLevel: 5 },
+  { minScore: 4040, maxLevel: 6 },
+  { minScore: 6840, maxLevel: 7 },
+  { minScore: 11200, maxLevel: 8 },
 ] as const;
 
 export const DANGER_FEEDBACK_STYLE = {

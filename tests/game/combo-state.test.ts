@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { COMBO_WINDOW_MS } from "../../src/game/systems/gameplayTuning";
+import { COMBO_WINDOW_MS, MAX_COMBO_COUNT } from "../../src/game/systems/gameplayTuning";
 import {
   consumeComboMerge,
   createComboState,
@@ -30,11 +30,23 @@ describe("combo state", () => {
   test("bonus curve ramps up without overwhelming score progression", () => {
     expect(getComboBonus(1)).toBe(0);
     expect(getComboBonus(2)).toBe(20);
-    expect(getComboBonus(3)).toBe(60);
-    expect(getComboBonus(4)).toBe(120);
-    expect(getComboBonus(5)).toBe(200);
-    expect(getComboBonus(6)).toBe(320);
-    expect(getComboBonus(7)).toBe(440);
+    expect(getComboBonus(3)).toBe(40);
+    expect(getComboBonus(4)).toBe(70);
+    expect(getComboBonus(5)).toBe(110);
+    expect(getComboBonus(6)).toBe(160);
+    expect(getComboBonus(7)).toBe(220);
+    expect(getComboBonus(8)).toBe(300);
+  });
+
+  test("combo count and bonus cap at 8 even if the chain continues", () => {
+    let state = createComboState();
+
+    for (let index = 0; index < 12; index += 1) {
+      state = consumeComboMerge(state).nextState;
+    }
+
+    expect(state.comboCount).toBe(MAX_COMBO_COUNT);
+    expect(getComboBonus(MAX_COMBO_COUNT)).toBe(getComboBonus(MAX_COMBO_COUNT + 3));
   });
 
   test("combo timeout resets the chain to zero state", () => {

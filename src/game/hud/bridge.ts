@@ -1,4 +1,4 @@
-import type { ToolKind } from "../systems/toolState";
+﻿import type { ToolKind } from "../systems/toolState";
 
 export type HudResultState = {
   score: number;
@@ -24,6 +24,7 @@ export type HudState = {
 export type HudControls = {
   restartRound: () => void;
   triggerTool: (tool: ToolKind) => void;
+  shareResult?: () => void;
 };
 
 type HudListener = (state: HudState) => void;
@@ -55,6 +56,7 @@ export type HudBridge = {
   bindControls: (controls: HudControls) => void;
   restart: () => void;
   useTool: (tool: ToolKind) => void;
+  shareResult: () => void;
 };
 
 export function createHudBridge(initial?: Partial<HudState>): HudBridge {
@@ -81,6 +83,8 @@ export function createHudBridge(initial?: Partial<HudState>): HudBridge {
     useTool: (tool) => {
       controls?.triggerTool(tool);
     },
+    shareResult: () => {
+      controls?.shareResult?.();
+    },
   };
 }
-

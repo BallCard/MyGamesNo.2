@@ -4,6 +4,7 @@ import {
   COMBO_BONUS_OVERFLOW_START_VALUE,
   COMBO_BONUS_OVERFLOW_STEP,
   COMBO_WINDOW_MS,
+  MAX_COMBO_COUNT,
 } from "./gameplayTuning";
 
 export type ComboState = {
@@ -25,20 +26,22 @@ export function createComboState(): ComboState {
 }
 
 export function getComboBonus(comboCount: number): number {
-  if (comboCount <= 1) {
+  const cappedComboCount = Math.min(MAX_COMBO_COUNT, comboCount);
+
+  if (cappedComboCount <= 1) {
     return 0;
   }
 
-  const configuredBonus = COMBO_BONUS_BY_COUNT[comboCount];
+  const configuredBonus = COMBO_BONUS_BY_COUNT[cappedComboCount];
   if (configuredBonus !== undefined) {
     return configuredBonus;
   }
 
-  if (comboCount <= COMBO_BONUS_OVERFLOW_START_COUNT) {
+  if (cappedComboCount <= COMBO_BONUS_OVERFLOW_START_COUNT) {
     return 0;
   }
 
-  return COMBO_BONUS_OVERFLOW_START_VALUE + (comboCount - COMBO_BONUS_OVERFLOW_START_COUNT) * COMBO_BONUS_OVERFLOW_STEP;
+  return COMBO_BONUS_OVERFLOW_START_VALUE + (cappedComboCount - COMBO_BONUS_OVERFLOW_START_COUNT) * COMBO_BONUS_OVERFLOW_STEP;
 }
 
 export function tickComboState(state: ComboState, deltaMs: number): ComboState {
@@ -67,7 +70,7 @@ export function finalizeComboFrame(
 }
 
 export function consumeComboMerge(state: ComboState): ComboConsumeResult {
-  const comboCount = state.remainingWindowMs > 0 ? state.comboCount + 1 : 1;
+  const comboCount = Math.min(MAX_COMBO_COUNT, state.remainingWindowMs > 0 ? state.comboCount + 1 : 1);
 
   return {
     nextState: {

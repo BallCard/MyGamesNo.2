@@ -19,19 +19,49 @@ export type UnlockProgress = {
 
 import { SCORE_UNLOCKS } from "../systems/gameplayTuning";
 
-const CAT_RADII = [20, 22, 24, 27, 30, 34, 39, 45, 52, 60, 69, 79] as const;
+const MAX_DROP_LEVEL = 8;
+const MAX_CAT_LEVEL = 18;
+const BASE_PLAYFIELD_WIDTH = 444;
+const BASE_PLAYFIELD_HEIGHT = 574;
+const MIN_CAT_RADIUS = 20;
+const MAX_CAT_RADIUS_WIDTH_RATIO = 0.218;
+const MAX_CAT_RADIUS_HEIGHT_RATIO = 0.168;
+const CAT_RADIUS_CURVE_EXPONENT = 1.5;
+
+const LEVEL_ASSET_KEYS = [
+  "cat-1",
+  "cat-2",
+  "cat-3",
+  "cat-4",
+  "cat-5",
+  "cat-6",
+  "cat-7",
+  "cat-8",
+  "cat-9",
+  "cat-10",
+  "cat-11",
+  "cat-12",
+  "cat-8-v2",
+  "cat-9-v2",
+  "cat-10-v2",
+  "cat-11-v2",
+  "cat-12-v2",
+  "cat-12-v3"
+] as const;
+
+export const RESULT_MASCOT_ASSET_KEY = "cat-11-v2";
 
 export const CAT_DEFINITIONS: CatDefinition[] = Array.from(
-  { length: 12 },
+  { length: MAX_CAT_LEVEL },
   (_, index) => {
     const level = index + 1;
 
     return {
       level,
-      assetKey: `cat-${level}`,
-      scoreValue: level * 10
+      assetKey: LEVEL_ASSET_KEYS[index] ?? "cat-12-v3",
+      scoreValue: level * 10,
     };
-  }
+  },
 );
 
 const DROP_VARIANTS: Record<number, string[]> = {
@@ -46,19 +76,31 @@ const DROP_VARIANTS: Record<number, string[]> = {
   9: ["cat-9", "cat-9-v2"],
   10: ["cat-10", "cat-10-v2"],
   11: ["cat-11", "cat-11-v2"],
-  12: ["cat-12", "cat-12-v2", "cat-12-v3"]
+  12: ["cat-12", "cat-12-v2", "cat-12-v3"],
 };
 
 export const ALL_CAT_ASSET_KEYS = Array.from(
-  new Set([...CAT_DEFINITIONS.map((cat) => cat.assetKey), ...Object.values(DROP_VARIANTS).flat()])
+  new Set([...CAT_DEFINITIONS.map((cat) => cat.assetKey), ...Object.values(DROP_VARIANTS).flat(), RESULT_MASCOT_ASSET_KEY]),
 );
 
 export function getCatDefinition(level: number): CatDefinition | null {
   return CAT_DEFINITIONS.find((cat) => cat.level === level) ?? null;
 }
 
-export function getCatRadius(level: number): number {
-  return CAT_RADII[Math.max(0, Math.min(CAT_RADII.length - 1, level - 1))];
+export function getCatRadius(
+  level: number,
+  playfieldWidth: number = BASE_PLAYFIELD_WIDTH,
+  playfieldHeight: number = BASE_PLAYFIELD_HEIGHT,
+): number {
+  const clampedLevel = Math.max(1, Math.min(MAX_CAT_LEVEL, level));
+  const ratio = clampedLevel === 1 ? 0 : (clampedLevel - 1) / (MAX_CAT_LEVEL - 1);
+  const maxRadius = Math.floor(
+    Math.min(playfieldWidth * MAX_CAT_RADIUS_WIDTH_RATIO, playfieldHeight * MAX_CAT_RADIUS_HEIGHT_RATIO),
+  );
+
+  return Math.round(
+    MIN_CAT_RADIUS + (maxRadius - MIN_CAT_RADIUS) * Math.pow(ratio, CAT_RADIUS_CURVE_EXPONENT),
+  );
 }
 
 export function getNextCatLevel(level: number): number | null {
@@ -77,7 +119,7 @@ export function getUnlockedMaxDropLevel(score: number): number {
       maxLevel = unlock.maxLevel;
     }
   }
-  return Math.min(maxLevel, 8);
+  return Math.min(maxLevel, MAX_DROP_LEVEL);
 }
 
 export function getUnlockProgress(score: number): UnlockProgress {
@@ -99,10 +141,10 @@ export function getUnlockProgress(score: number): UnlockProgress {
     currentMinScore: current.minScore,
     nextMaxLevel: next?.maxLevel ?? null,
     nextMinScore: next?.minScore ?? null,
-    progressRatio
+    progressRatio,
   };
 }
 
 export function getDropVariantPool(level: number): string[] {
-  return DROP_VARIANTS[level] ?? [getCatDefinition(level)?.assetKey ?? `cat-${level}`];
+  return DROP_VARIANTS[level] ?? [getCatDefinition(level)?.assetKey ?? RESULT_MASCOT_ASSET_KEY];
 }
