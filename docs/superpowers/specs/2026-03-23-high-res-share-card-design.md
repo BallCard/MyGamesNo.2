@@ -9,6 +9,7 @@ This iteration should:
 - replace the current placeholder cat rendering with real cat image assets for export and real cat frame assets for preview where available
 - preserve the existing low/mid/high score-band composition logic
 - keep the preview workflow intact while improving the exported output quality
+- keep preview motion in the DOM layer, where lightweight frame switching is easiest to control
 - allow the preview and export layers to use different rendering techniques while sharing the same composition rules
 - separate preview rendering from export rendering so the export no longer feels like a low-resolution page capture
 - keep the `Share` interaction model unchanged: native share first, automatic download fallback
@@ -57,7 +58,7 @@ Use separate rendering responsibilities for preview and export.
 
 - optimized for interactive viewing inside the app
 - continues using the current DOM-based layout
-- may use a short multi-frame cat sequence from the same cat asset family to add lightweight motion
+- uses a short multi-frame cat sequence from the same cat asset family to add lightweight motion
 - should be visually faithful to the final exported composition
 - does not need to equal final export pixel density
 
@@ -96,7 +97,8 @@ MVP asset contract:
 
 - export hero asset: one static PNG with transparency, suitable for `1080 x 1920` card rendering
 - preview hero assets: a small ordered frame set from the same cat family, also with transparency
-- if the real asset or preview frames fail to load, fall back to the current placeholder cat rendering rather than breaking share
+- if preview frames fail to load, first fall back to the same cat's static image
+- if the real cat image itself is unavailable, fall back to the current placeholder cat rendering rather than breaking share
 
 ### Pose implementation for MVP
 
@@ -106,6 +108,7 @@ Recommended first version:
 
 - use one real primary cat asset family
 - preview uses lightweight frame switching from that family
+- if preview motion assets fail, preview falls back to that same cat's static hero image
 - export uses one corresponding static hero image from that family
 - vary layout through position, scale, rotation, and score anchor rules per band
 - if additional real pose-specific assets already exist, they may be used, but they are not required for MVP
@@ -186,6 +189,7 @@ Preferred approach:
 - add a dedicated export renderer that creates a larger off-screen canvas target
 - generate the final image blob from that off-screen target
 - pass that blob into the existing native-share-first export path
+- if preview frames are unavailable, degrade first to the same cat's static hero image
 - if real cat assets are unavailable during export, degrade to a placeholder-cat export card rather than failing the share action
 
 This avoids tying final image sharpness to viewport size.
