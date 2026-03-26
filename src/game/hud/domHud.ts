@@ -6,6 +6,7 @@ import { exportShareCardFromRenderer, type ExportShareCardFromRendererOptions } 
 import { renderShareCardPreview } from "../share/shareCardPreview";
 import type { ShareCardExportRenderInput } from "../share/shareCardExportRenderer";
 import { RESULT_MASCOT_ASSET_KEY } from "../config/cats";
+import type { PlayerGuideStep } from "../../lib/playerGuide";
 
 const TOOL_ORDER: ToolKind[] = ["shake", "hammer", "bomb", "refresh"];
 const TOOL_LABELS: Record<ToolKind, string> = {
@@ -46,13 +47,13 @@ function renderTools(state: HudState, side: "left" | "right"): string {
     .join("");
 }
 
-function renderResultOverlay(state: HudState, isSharePreviewOpen: boolean): string {
+function renderResultOverlay(state: HudState, isSharePreviewOpen: boolean, leaderboardHref: string | null): string {
   if (!state.result) {
     return "";
   }
 
-  const headline = state.result.isNewBest ? "NEW BEST" : "RUN COMPLETE";
-  const label = state.result.isNewBest ? "PERSONAL BEST" : "FINAL SCORE";
+  const headline = state.result.isNewBest ? "\u65b0\u7eaa\u5f55" : "\u672c\u5c40\u7ed3\u675f";
+  const label = state.result.isNewBest ? "\u4e2a\u4eba\u6700\u4f73" : "\u672c\u5c40\u5206\u6570";
   const inertAttrs = isSharePreviewOpen ? ' aria-disabled="true" tabindex="-1"' : "";
 
   return `
@@ -67,25 +68,47 @@ function renderResultOverlay(state: HudState, isSharePreviewOpen: boolean): stri
           <div class="hud-result-label">${label}</div>
           <div class="hud-result-stats">
             <div class="hud-result-stat-card">
-              <div class="hud-result-stat-label">SCORE</div>
+              <div class="hud-result-stat-label">\u5206\u6570</div>
               <div class="hud-result-stat-value">${state.result.score}</div>
             </div>
             <div class="hud-result-stat-card">
-              <div class="hud-result-stat-label">PEAK LV</div>
+              <div class="hud-result-stat-label">\u6700\u9ad8\u7b49\u7ea7</div>
               <div class="hud-result-stat-value">Lv.${state.result.peakLevel}</div>
             </div>
           </div>
           <div class="hud-result-actions">
-            <button class="hud-result-restart${isSharePreviewOpen ? " is-disabled" : ""}" type="button" data-action="restart-result"${inertAttrs}>Restart</button>
-            <button class="hud-result-secondary${isSharePreviewOpen ? " is-disabled" : ""}" type="button" data-action="share-result"${inertAttrs}>Share</button>
+            <button class="hud-result-restart${isSharePreviewOpen ? " is-disabled" : ""}" type="button" data-action="restart-result"${inertAttrs}>\u518d\u6765\u4e00\u5c40</button>
+            <button class="hud-result-secondary${isSharePreviewOpen ? " is-disabled" : ""}" type="button" data-action="share-result"${inertAttrs}>\u5206\u4eab</button>
           </div>
+          ${leaderboardHref ? `<a class="hud-result-link${isSharePreviewOpen ? " is-disabled" : ""}" href="${leaderboardHref}"${inertAttrs}>\u67e5\u770b\u6392\u884c\u699c</a>` : ""}
         </div>
       </div>
     </div>
   `;
 }
 
-function render(state: HudState, isSharePreviewOpen: boolean, sharePreviewMarkup: string): string {
+function renderGuideOverlay(step: PlayerGuideStep | null): string {
+  if (!step) {
+    return "";
+  }
+
+  return `
+    <div class="hud-guide-layer" aria-label="player-guide-gameplay">
+      <div class="hud-guide-blocker"></div>
+      <section class="hud-guide-card">
+        <div class="hud-guide-eyebrow">\u73a9\u6cd5\u8bf4\u660e</div>
+        <strong class="hud-guide-title">${step.title}</strong>
+        <p class="hud-guide-body">${step.body}</p>
+        <div class="hud-guide-actions">
+          <button class="hud-guide-next" type="button" data-action="guide-next">${step.primaryLabel}</button>
+          <button class="hud-guide-skip" type="button" data-action="guide-skip">${step.secondaryLabel}</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function render(state: HudState, isSharePreviewOpen: boolean, sharePreviewMarkup: string, leaderboardHref: string | null, guideMarkup: string): string {
   const resultActive = Boolean(state.result);
   const restartMarkup = resultActive
     ? '<div class="hud-restart-wrap is-hidden"></div>'
@@ -124,7 +147,8 @@ function render(state: HudState, isSharePreviewOpen: boolean, sharePreviewMarkup
       <aside class="hud-tools hud-tools-right">
         ${renderTools(state, "right")}
       </aside>
-      ${renderResultOverlay(state, isSharePreviewOpen)}
+      ${guideMarkup}
+      ${renderResultOverlay(state, isSharePreviewOpen, leaderboardHref)}
       ${sharePreviewMarkup}
     </div>
   `;
@@ -136,6 +160,14 @@ function bindPressAction(element: HTMLElement, action: () => void | Promise<void
     event.stopPropagation();
     void Promise.resolve(action()).catch(() => {});
   });
+}
+
+function navigateToHref(href: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.location.assign(href);
 }
 
 const shareCardPreviewPreloadCache = new Map<string, Promise<void>>();
@@ -181,6 +213,10 @@ export type MountGameHudOptions = {
   resolveShareCardAssets?: (peakLevel: number) => ShareCardAssets;
   exportShareCard?: (options: ExportShareCardFromRendererOptions) => Promise<"shared" | "downloaded">;
   preloadShareCardAssets?: (assets: ShareCardAssets) => Promise<void>;
+  leaderboardHref?: string;
+  playerGuideSteps?: PlayerGuideStep[];
+  onPlayerGuideComplete?: () => void;
+  onPlayerGuideSkip?: () => void;
 };
 
 type FrozenShareCard = {
@@ -195,6 +231,8 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge, options?: Mou
   const resolveAssets = options?.resolveShareCardAssets ?? resolveShareCardAssets;
   const exportShareCard = options?.exportShareCard ?? exportShareCardFromRenderer;
   const preloadAssets = options?.preloadShareCardAssets ?? preloadShareCardPreviewAssets;
+  const playerGuideSteps = options?.playerGuideSteps ?? [];
+  let playerGuideIndex = playerGuideSteps.length > 0 ? 0 : -1;
 
   const closeSharePreview = (): void => {
     if (!sharePreviewOpen) {
@@ -235,6 +273,43 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge, options?: Mou
       assets,
     };
     paint(state);
+  };
+
+  const getCurrentGuideStep = (): PlayerGuideStep | null => {
+    if (playerGuideIndex < 0 || playerGuideIndex >= playerGuideSteps.length) {
+      return null;
+    }
+    return playerGuideSteps[playerGuideIndex];
+  };
+
+  const closeGuide = (): void => {
+    playerGuideIndex = -1;
+  };
+
+  const advanceGuide = (): void => {
+    if (playerGuideIndex < 0) {
+      return;
+    }
+
+    if (playerGuideIndex >= playerGuideSteps.length - 1) {
+      closeGuide();
+      options?.onPlayerGuideComplete?.();
+      paint(bridge.getState());
+      return;
+    }
+
+    playerGuideIndex += 1;
+    paint(bridge.getState());
+  };
+
+  const skipGuide = (): void => {
+    if (playerGuideIndex < 0) {
+      return;
+    }
+
+    closeGuide();
+    options?.onPlayerGuideSkip?.();
+    paint(bridge.getState());
   };
 
   const getSharePreviewMarkup = (): string => {
@@ -290,6 +365,21 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge, options?: Mou
       bindPressAction(previewShareButton, handlePreviewShare);
     }
 
+    const leaderboardLink = root.querySelector<HTMLAnchorElement>('.hud-result-link:not(.is-disabled)');
+    if (leaderboardLink) {
+      bindPressAction(leaderboardLink, () => navigateToHref(leaderboardLink.href));
+    }
+
+    const guideNextButton = root.querySelector<HTMLElement>('[data-action="guide-next"]');
+    if (guideNextButton) {
+      bindPressAction(guideNextButton, advanceGuide);
+    }
+
+    const guideSkipButton = root.querySelector<HTMLElement>('[data-action="guide-skip"]');
+    if (guideSkipButton) {
+      bindPressAction(guideSkipButton, skipGuide);
+    }
+
     root.querySelectorAll<HTMLElement>('[data-tool]').forEach((button) => {
       bindPressAction(button, () => {
         const tool = button.getAttribute("data-tool") as ToolKind | null;
@@ -301,11 +391,14 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge, options?: Mou
   };
 
   const paint = (state: HudState): void => {
-    root.innerHTML = render(state, sharePreviewOpen, getSharePreviewMarkup());
+    const guideMarkup = !state.result && !sharePreviewOpen ? renderGuideOverlay(getCurrentGuideStep()) : "";
+    root.innerHTML = render(state, sharePreviewOpen, getSharePreviewMarkup(), options?.leaderboardHref ?? null, guideMarkup);
     bind();
     if (sharePreviewOpen) {
       root.querySelector<HTMLElement>('[data-action="close-share-preview"]')?.focus();
+      return;
     }
+    root.querySelector<HTMLElement>('[data-action="guide-next"]')?.focus();
   };
 
   paint(bridge.getState());
@@ -318,5 +411,4 @@ export function mountGameHud(root: HTMLElement, bridge: HudBridge, options?: Mou
     root.innerHTML = "";
   };
 }
-
 

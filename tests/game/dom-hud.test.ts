@@ -2,6 +2,7 @@
 
 import { createHudBridge } from "../../src/game/hud/bridge";
 import { mountGameHud } from "../../src/game/hud/domHud";
+import { buildPlayerGuideFlow } from "../../src/lib/playerGuide";
 
 function makeFrameAssets() {
   return {
@@ -216,14 +217,14 @@ describe("dom hud", () => {
       },
     });
 
-    expect(root.querySelector('[aria-label="result-overlay"] .hud-result-eyebrow')?.textContent).toBe("NEW BEST");
+    expect(root.querySelector('[aria-label="result-overlay"] .hud-result-eyebrow')?.textContent).toBe("\u65b0\u7eaa\u5f55");
 
     root.querySelector('[data-action="share-result"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
     await flushMicrotasks();
 
     expect(root.querySelector('[aria-label="share-preview"] .share-card-badge')).toBeNull();
     expect(root.querySelector('[aria-label="share-preview"]')?.textContent).not.toContain("NEW BEST");
-    expect(root.querySelector('[aria-label="result-overlay"] .hud-result-eyebrow')?.textContent).toBe("NEW BEST");
+    expect(root.querySelector('[aria-label="result-overlay"] .hud-result-eyebrow')?.textContent).toBe("\u65b0\u7eaa\u5f55");
     unmount();
   });
 
@@ -283,6 +284,97 @@ describe("dom hud", () => {
     unmount();
   });
 
+  test("renders gameplay guide steps and completes the flow", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const root = document.getElementById("root") as HTMLElement;
+    const bridge = createHudBridge();
+    const onComplete = vi.fn();
+    const onSkip = vi.fn();
+
+    const unmount = mountGameHud(root, bridge, {
+      playerGuideSteps: buildPlayerGuideFlow().gameplaySteps,
+      onPlayerGuideComplete: onComplete,
+      onPlayerGuideSkip: onSkip,
+    });
+
+    expect(root.querySelector('[aria-label="player-guide-gameplay"]')?.textContent).toContain("按住拖动");
+
+    root.querySelector('[data-action="guide-next"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    expect(root.querySelector('[aria-label="player-guide-gameplay"]')?.textContent).toContain("同级会合成");
+
+    root.querySelector('[data-action="guide-next"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    expect(root.querySelector('[aria-label="player-guide-gameplay"]')?.textContent).toContain("最多 8 连");
+
+    root.querySelector('[data-action="guide-next"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    root.querySelector('[data-action="guide-next"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+    root.querySelector('[data-action="guide-next"]')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onSkip).not.toHaveBeenCalled();
+    expect(root.querySelector('[aria-label="player-guide-gameplay"]')).toBeNull();
+    unmount();
+  });
+
+  test("renders a leaderboard link from the result layer", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const root = document.getElementById("root") as HTMLElement;
+    const bridge = createHudBridge();
+
+    const unmount = mountGameHud(root, bridge, {
+      leaderboardHref: "/?openLeaderboard=1",
+      preloadShareCardAssets: () => Promise.resolve(),
+    });
+    bridge.publish({
+      isGameOver: true,
+      result: {
+        score: 54020,
+        peakLevel: 9,
+        isNewBest: false,
+      },
+    });
+
+    const link = root.querySelector('.hud-result-link') as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute("href")).toBe('/?openLeaderboard=1');
+    expect(link.textContent).toContain('\u67e5\u770b\u6392\u884c\u699c');
+    unmount();
+  });
+
+
+  test("navigates to the leaderboard from the result layer on pointerdown", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const root = document.getElementById("root") as HTMLElement;
+    const bridge = createHudBridge();
+    const assignSpy = vi.fn();
+    const originalLocation = window.location;
+
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        assign: assignSpy,
+      },
+    });
+
+    const unmount = mountGameHud(root, bridge, {
+      leaderboardHref: "/?openLeaderboard=1",
+      preloadShareCardAssets: () => Promise.resolve(),
+    });
+    bridge.publish({
+      isGameOver: true,
+      result: {
+        score: 54020,
+        peakLevel: 9,
+        isNewBest: false,
+      },
+    });
+
+    root.querySelector('.hud-result-link')?.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
+
+    expect(assignSpy).toHaveBeenCalledWith("http://localhost:3000/?openLeaderboard=1");
+    unmount();
+  });
+
   test("closes the preview and leaves the result layer intact", async () => {
     document.body.innerHTML = '<div id="root"></div>';
     const root = document.getElementById("root") as HTMLElement;
@@ -311,5 +403,9 @@ describe("dom hud", () => {
     unmount();
   });
 });
+
+
+
+
 
 

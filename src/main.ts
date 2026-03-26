@@ -1,19 +1,23 @@
-﻿import "./styles.css";
+import "./styles.css";
 
-import { createHudBridge, type HudBridge } from "./game/hud/bridge";
+import { createHudBridge, type HudBridge, type HudResultState } from "./game/hud/bridge";
 import { mountGameHud } from "./game/hud/domHud";
 import { getCatDefinition, getCatRadius } from "./game/config/cats";
 import { buildShareCardModel } from "./game/share/shareCardPolicy";
 import { resolveShareCardAssets } from "./game/share/shareCardAssets";
 import { renderShareCardSurface } from "./game/share/shareCardPreview";
+import { createLeaderboardClient, type LeaderboardClient, type LeaderboardEntry, type LeaderboardMe } from "./lib/leaderboardApi";
+import { buildPlayerGuideFlow, markPlayerGuideCompleted, markPlayerGuideSkipped, shouldAutoOpenPlayerGuide, type PlayerGuideStep } from "./lib/playerGuide";
+import { createBgmManager } from "./lib/bgmManager";
 
 type CreateGameImpl = (target: HTMLElement, bridge?: HudBridge) => unknown;
 type ModalType = "nickname" | "settings" | "leaderboard" | null;
-type LeaderboardTab = "allTime" | "weekly";
+type LeaderboardStatus = "loading" | "ready" | "error";
 
 type AppOptions = {
   startGame?: boolean;
   createGameImpl?: CreateGameImpl;
+  leaderboardClient?: LeaderboardClient;
 };
 
 type AppSettings = {
@@ -22,47 +26,23 @@ type AppSettings = {
   vibrationEnabled: boolean;
 };
 
-type LeaderboardEntry = {
-  rank: number;
-  nickname: string;
-  score: number;
-  highestLevel: number;
-};
-
 type ShareLabScenario = {
   title: string;
   score: number;
   peakLevel: number;
 };
 
-
-type ShareLabVariant = {
-  id: string;
-  title: string;
-  subtitle: string;
-  surfaceClassName: string;
+type AppState = {
+  nickname: string;
+  settings: AppSettings;
+  modal: ModalType;
+  leaderboardStatus: LeaderboardStatus;
+  leaderboardEntries: LeaderboardEntry[];
+  myLeaderboard: LeaderboardMe | null;
+  leaderboardError: string | null;
+  homeGuideMode: "auto" | "manual" | null;
 };
 
-const SHARE_LAB_VARIANTS: ShareLabVariant[] = [
-  {
-    id: "sticker",
-    title: "Sticker Poster",
-    subtitle: "Overlaps, shadows, cutout energy.",
-    surfaceClassName: "share-card--sticker",
-  },
-  {
-    id: "editorial",
-    title: "Editorial Poster",
-    subtitle: "Sharper hierarchy and cleaner space.",
-    surfaceClassName: "share-card--editorial",
-  },
-  {
-    id: "arcade",
-    title: "Arcade Heat",
-    subtitle: "Hotter glow, bolder score drama.",
-    surfaceClassName: "share-card--arcade",
-  },
-];
 const SHARE_LAB_BAND_SCENARIOS: ShareLabScenario[] = [
   { title: "Below 100K", score: 68000, peakLevel: 8 },
   { title: "100K+", score: 138000, peakLevel: 12 },
@@ -75,13 +55,6 @@ const SHARE_LAB_CAT_SCENARIOS: ShareLabScenario[] = Array.from({ length: 12 }, (
 }));
 
 const LATE_LAB_LEVELS = [13, 14, 15, 16, 17, 18] as const;
-
-type AppState = {
-  nickname: string;
-  settings: AppSettings;
-  modal: ModalType;
-  leaderboardTab: LeaderboardTab;
-};
 const NICKNAME_KEY = "zju-cat-merge:nickname";
 const SETTINGS_KEY = "zju-cat-merge:settings";
 const DEFAULT_NICKNAME = "\u533f\u540d\u540c\u5b66";
@@ -91,22 +64,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   vibrationEnabled: true,
 };
 
-const LEADERBOARDS: Record<LeaderboardTab, LeaderboardEntry[]> = {
-  allTime: [
-    { rank: 1, nickname: "\u8004\u800b\u732b\u7687", score: 12880, highestLevel: 11 },
-    { rank: 2, nickname: "DDL \u5e78\u5b58\u8005", score: 11240, highestLevel: 10 },
-    { rank: 3, nickname: "\u7389\u6cc9\u732b\u8584\u8377", score: 9860, highestLevel: 10 },
-    { rank: 4, nickname: "\u897f\u6eaa\u56e2\u5b50", score: 8450, highestLevel: 9 },
-    { rank: 5, nickname: "\u7d2b\u91d1\u6e2f\u8e72\u5b88", score: 7920, highestLevel: 9 },
-  ],
-  weekly: [
-    { rank: 1, nickname: "\u4eca\u5929\u4e5f\u665a\u8bfe", score: 6680, highestLevel: 8 },
-    { rank: 2, nickname: "\u6885\u56ed\u51b2\u5206", score: 6410, highestLevel: 8 },
-    { rank: 3, nickname: "\u56fe\u4e66\u9986\u6478\u9c7c", score: 6180, highestLevel: 8 },
-    { rank: 4, nickname: "\u8004\u800b\u4ee3\u6253", score: 5870, highestLevel: 7 },
-    { rank: 5, nickname: "\u518d\u6765\u4e00\u628a", score: 5520, highestLevel: 7 },
-  ],
-};
+const PLAYER_GUIDE_FLOW = buildPlayerGuideFlow();
 
 function getStorage(): Storage | null {
   try {
@@ -154,20 +112,61 @@ function formatScore(score: number): string {
   return score.toLocaleString("zh-CN");
 }
 
-function renderLeaderboardRows(tab: LeaderboardTab, nickname: string): string {
-  return LEADERBOARDS[tab]
-    .map((entry) => {
-      const isSelf = entry.nickname === nickname;
-      return `
-        <div class="leaderboard-row${isSelf ? " is-self" : ""}">
-          <span class="leaderboard-rank">#${entry.rank}</span>
-          <span class="leaderboard-name">${entry.nickname}</span>
-          <span class="leaderboard-meta">Lv.${entry.highestLevel}</span>
-          <strong class="leaderboard-score">${formatScore(entry.score)}</strong>
-        </div>
-      `;
-    })
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderLeaderboardRows(entries: LeaderboardEntry[]): string {
+  if (entries.length === 0) {
+    return '<div class="leaderboard-empty">\u8fd8\u6ca1\u6709\u6210\u7ee9\uff0c\u4f60\u53ef\u4ee5\u5148\u5360\u4e0b\u7b2c\u4e00\u4e2a\u540d\u5b57\u3002</div>';
+  }
+
+  return entries
+    .map((entry) => `
+      <div class="leaderboard-row${entry.isSelf ? " is-self" : ""}">
+        <span class="leaderboard-rank">#${entry.rank}</span>
+        <span class="leaderboard-name">${escapeHtml(entry.nickname)}</span>
+        <span class="leaderboard-meta">Lv.${entry.peakLevel}</span>
+        <strong class="leaderboard-score">${formatScore(entry.score)}</strong>
+      </div>
+    `)
     .join("");
+}
+
+function renderLeaderboardStatus(state: AppState): string {
+  if (state.leaderboardStatus === "loading") {
+    return '<div class="leaderboard-status">\u5b9e\u65f6\u6392\u884c\u699c\u52a0\u8f7d\u4e2d...</div>';
+  }
+
+  if (state.leaderboardStatus === "error") {
+    return `<div class="leaderboard-status is-error">${escapeHtml(state.leaderboardError ?? "\u6392\u884c\u699c\u6682\u65f6\u4e0d\u53ef\u7528\u3002")}</div>`;
+  }
+
+  return renderLeaderboardRows(state.leaderboardEntries);
+}
+
+function renderMyLeaderboardCard(state: AppState): string {
+  if (!state.myLeaderboard) {
+    return '<div class="leaderboard-my-card is-empty">\u4f60\u7684\u6700\u4f73\u6210\u7ee9\u4f1a\u5728\u7b2c\u4e00\u6b21\u6709\u6548\u63d0\u4ea4\u540e\u51fa\u73b0\u5728\u8fd9\u91cc\u3002</div>';
+  }
+
+  const rankLabel = state.myLeaderboard.rank ? `#${state.myLeaderboard.rank}` : "\u672a\u4e0a\u699c";
+  return `
+    <div class="leaderboard-my-card" aria-label="my-leaderboard-card">
+      <div>
+        <div class="leaderboard-my-label">\u6211\u7684\u6700\u4f73</div>
+        <strong class="leaderboard-my-name">${escapeHtml(state.myLeaderboard.nickname)}</strong>
+      </div>
+      <div class="leaderboard-my-rank">${rankLabel}</div>
+      <div class="leaderboard-my-score">${formatScore(state.myLeaderboard.score)}</div>
+      <div class="leaderboard-my-meta">\u6700\u9ad8 Lv.${state.myLeaderboard.peakLevel}</div>
+    </div>
+  `;
 }
 
 function renderLeaderboardPreview(state: AppState): string {
@@ -175,19 +174,36 @@ function renderLeaderboardPreview(state: AppState): string {
     <section class="leaderboard-preview" aria-label="leaderboard-preview">
       <div class="section-heading">
         <div>
-          <strong>\u6eda\u52a8\u6392\u884c\u699c</strong>
-          <p>\u9996\u9875\u4e0b\u65b9\u76f4\u63a5\u770b\u9ad8\u5206\uff0c\u70b9\u8fdb\u53bb\u518d\u770b\u5b8c\u6574\u699c\u5355</p>
+          <strong>\u5b9e\u65f6\u6392\u884c\u699c</strong>
+          <p>\u6bcf\u5c40\u90fd\u80fd\u518d\u5f80\u4e0a\u4e00\u70b9\uff0c\u770b\u770b\u8fd9\u6b21\u80fd\u51b2\u5230\u7b2c\u51e0\u540d\u3002</p>
         </div>
         <div class="preview-tabs">
           <span class="preview-tab is-active">\u603b\u699c</span>
-          <span class="preview-tab">\u5468\u699c</span>
+          <span class="preview-tab is-disabled">\u5468\u699c</span>
         </div>
       </div>
+      <button class="secondary-button leaderboard-preview-action" type="button" data-action="open-leaderboard">\u67e5\u770b\u5b8c\u6574\u699c\u5355</button>
+      ${renderMyLeaderboardCard(state)}
       <div class="leaderboard-scroll">
-        ${renderLeaderboardRows("allTime", state.nickname)}
-        ${renderLeaderboardRows("weekly", state.nickname)}
+        ${renderLeaderboardStatus(state)}
       </div>
     </section>
+  `;
+}
+
+function renderHomeGuideOverlay(step: PlayerGuideStep): string {
+  return `
+    <div class="home-guide-backdrop">
+      <section class="home-guide-card" aria-label="player-guide-home">
+        <div class="home-guide-eyebrow">\u73a9\u6cd5\u8bf4\u660e</div>
+        <strong class="home-guide-title">${step.title}</strong>
+        <p class="home-guide-body">${step.body}</p>
+        <div class="home-guide-actions">
+          <button class="primary-button" type="button" data-action="start-guide">${step.primaryLabel}</button>
+          <button class="secondary-button" type="button" data-action="skip-guide">${step.secondaryLabel}</button>
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -202,7 +218,7 @@ function renderModal(state: AppState): string {
           </header>
           <label class="field-stack">
             <span>\u5c55\u793a\u6635\u79f0</span>
-            <input class="text-input" name="nickname" maxlength="12" value="${state.nickname}" placeholder="\u8f93\u5165\u4f60\u7684\u732b\u732b\u540d" />
+            <input class="text-input" name="nickname" maxlength="12" value="${escapeHtml(state.nickname)}" placeholder="\u7ed9\u4f60\u7684\u8fd9\u5c40\u8d77\u4e2a\u540d\u5b57" />
           </label>
           <div class="modal-actions">
             <button class="secondary-button" type="button" data-action="close-modal">\u53d6\u6d88</button>
@@ -242,7 +258,6 @@ function renderModal(state: AppState): string {
   }
 
   if (state.modal === "leaderboard") {
-    const activeTab = state.leaderboardTab;
     return `
       <div class="modal-backdrop" data-action="close-modal">
         <section class="modal-card modal-card-wide" aria-label="leaderboard-modal" onclick="event.stopPropagation()">
@@ -251,11 +266,12 @@ function renderModal(state: AppState): string {
             <button class="icon-button" type="button" data-action="close-modal">\u5173\u95ed</button>
           </header>
           <div class="leaderboard-tabs">
-            <button class="secondary-button ${activeTab === "allTime" ? "is-active" : ""}" type="button" data-tab="allTime">\u603b\u699c</button>
-            <button class="secondary-button ${activeTab === "weekly" ? "is-active" : ""}" type="button" data-tab="weekly">\u5468\u699c</button>
+            <button class="secondary-button is-active" type="button">\u603b\u699c</button>
+            <button class="secondary-button is-disabled" type="button" disabled>\u5468\u699c</button>
           </div>
+          ${renderMyLeaderboardCard(state)}
           <div class="leaderboard-panel">
-            ${renderLeaderboardRows(activeTab, state.nickname)}
+            ${renderLeaderboardStatus(state)}
           </div>
         </section>
       </div>
@@ -264,7 +280,6 @@ function renderModal(state: AppState): string {
 
   return "";
 }
-
 
 function shouldOpenShareLab(): boolean {
   if (typeof window === "undefined") {
@@ -284,12 +299,21 @@ function shouldOpenLateLab(): boolean {
   return params.get("lateLab") === "1";
 }
 
+function shouldOpenLeaderboard(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get("openLeaderboard") === "1";
+}
+
 function renderShareLabCard(scenario: ShareLabScenario, surfaceClassName = ""): string {
   return `
     <section class="share-lab-card-shell">
       <div class="share-lab-card-header">
         <strong>${scenario.title}</strong>
-        <span>${scenario.score.toLocaleString("zh-CN")} �� Lv.${scenario.peakLevel}</span>
+        <span>${scenario.score.toLocaleString("zh-CN")} ? Lv.${scenario.peakLevel}</span>
       </div>
       ${renderShareCardSurface({
         model: buildShareCardModel({ score: scenario.score, peakLevel: scenario.peakLevel, isNewBest: false }),
@@ -299,20 +323,6 @@ function renderShareLabCard(scenario: ShareLabScenario, surfaceClassName = ""): 
         assets: resolveShareCardAssets(scenario.peakLevel),
         surfaceClassName,
       })}
-    </section>
-  `;
-}
-
-function renderShareLabVariant(variant: ShareLabVariant): string {
-  return `
-    <section class="share-lab-variant" aria-label="share-lab-variant-${variant.id}">
-      <div class="share-lab-variant-header">
-        <strong>${variant.title}</strong>
-        <span>${variant.subtitle}</span>
-      </div>
-      <div class="share-lab-variant-grid">
-        ${SHARE_LAB_BAND_SCENARIOS.map((scenario) => renderShareLabCard(scenario, variant.surfaceClassName)).join("")}
-      </div>
     </section>
   `;
 }
@@ -416,7 +426,7 @@ function renderLateLab(root: HTMLElement): void {
             <h1 class="late-lab-title">Late Game Lab</h1>
             <p class="late-lab-subtitle">Fast QA for levels 13-18: size curve, asset gradient, and crowding pressure.</p>
           </div>
-          <a class="secondary-button late-lab-exit" href="/">Back Home</a>
+          <a class="secondary-button late-lab-exit" href="/">\u8fd4\u56de\u9996\u9875</a>
         </header>
         ${renderLateLabLadder()}
         ${renderLateLabMergeTargets()}
@@ -435,7 +445,7 @@ function renderShareLab(root: HTMLElement): void {
             <h1 class="share-lab-title">Share Card Lab</h1>
             <p class="share-lab-subtitle">Dev check for bands, cat assets, GIF preview, and static export mapping.</p>
           </div>
-          <a class="secondary-button share-lab-exit" href="/">Back Home</a>
+          <a class="secondary-button share-lab-exit" href="/">\u8fd4\u56de\u9996\u9875</a>
         </header>
         <section class="share-lab-section" aria-label="share-lab-bands">
           <div class="share-lab-section-heading">
@@ -459,6 +469,7 @@ function renderShareLab(root: HTMLElement): void {
     </main>
   `;
 }
+
 function renderHomeScreen(root: HTMLElement, state: AppState): void {
   root.innerHTML = `
     <main class="home-screen">
@@ -471,25 +482,27 @@ function renderHomeScreen(root: HTMLElement, state: AppState): void {
         <section class="hero-card" aria-label="game-hero">
           <div class="hero-stack">
             <div class="hero-cat">&#128049;</div>
-            <p class="home-tip">\u8f6f\u840c\u3001\u9b54\u6027\u3001\u89e3\u538b\uff0c\u9002\u5408\u8bfe\u95f4\u548c DDL \u540e\u6765\u4e00\u628a</p>
+            <p class="home-tip">\u8f6f\u840c\u3001\u9b54\u6027\u3001\u89e3\u538b</p>
           </div>
         </section>
         <section class="home-actions home-actions-top">
           <button class="primary-button" type="button" data-action="start-game">\u5f00\u59cb\u5438\u732b</button>
           <div class="secondary-actions">
             <button class="secondary-button" type="button" data-action="open-leaderboard">\u770b\u6392\u884c\u699c</button>
+            <button class="secondary-button" type="button" data-action="open-guide">\u73a9\u6cd5\u8bf4\u660e</button>
             <button class="secondary-button" type="button" data-action="open-settings">\u8bbe\u7f6e</button>
           </div>
         </section>
         <section class="nick-row" aria-label="nickname-card">
           <div class="nick-meta">
-            <span class="nick-label">Nickname</span>
-            <strong class="nick-value">${state.nickname}</strong>
+            <span class="nick-label">\u6635\u79f0</span>
+            <strong class="nick-value">${escapeHtml(state.nickname)}</strong>
           </div>
           <button class="icon-button" type="button" aria-label="edit-nickname" data-action="open-nickname">\u6539\u6635\u79f0</button>
         </section>
         ${renderLeaderboardPreview(state)}
       </section>
+      ${state.homeGuideMode && state.modal === null ? renderHomeGuideOverlay(PLAYER_GUIDE_FLOW.homeStep) : ""}
       ${renderModal(state)}
     </main>
   `;
@@ -523,30 +536,40 @@ async function resolveCreateGame(options: AppOptions): Promise<CreateGameImpl> {
   return createGame;
 }
 
+function createResultSignature(result: HudResultState | null): string | null {
+  if (!result) {
+    return null;
+  }
+
+  return `${result.score}:${result.peakLevel}`;
+}
+
 export async function createApp(root: HTMLElement, options: AppOptions = {}): Promise<void> {
+  const leaderboardClient = options.leaderboardClient ?? createLeaderboardClient();
   let started = false;
+  let leaderboardRequestVersion = 0;
+  let lastSubmittedResultSignature: string | null = null;
+  let lastHudResultSignature: string | null = null;
   const state: AppState = {
     nickname: readNickname(),
     settings: readSettings(),
-    modal: null,
-    leaderboardTab: "allTime",
+    modal: shouldOpenLeaderboard() ? "leaderboard" : null,
+    leaderboardStatus: "loading",
+    leaderboardEntries: [],
+    myLeaderboard: null,
+    leaderboardError: null,
+    homeGuideMode: shouldOpenLeaderboard() ? null : (shouldAutoOpenPlayerGuide(PLAYER_GUIDE_FLOW.version) ? "auto" : null),
   };
+  const bgmManager = createBgmManager({ enabled: state.settings.musicEnabled });
+  const unlockBgm = (): void => bgmManager.unlock();
+  document.addEventListener("pointerdown", unlockBgm, { capture: true });
+  document.addEventListener("keydown", unlockBgm, { capture: true });
 
-  const enterGame = async (): Promise<void> => {
+  const renderHome = (): void => {
     if (started) {
       return;
     }
 
-    started = true;
-    setScrollLock(true);
-    const { gameRoot, hudRoot } = renderGameScreen(root);
-    const bridge = createHudBridge();
-    mountGameHud(hudRoot, bridge);
-    const createGame = await resolveCreateGame(options);
-    createGame(gameRoot, bridge);
-  };
-
-  const renderHome = (): void => {
     setScrollLock(false);
     renderHomeScreen(root, state);
 
@@ -564,8 +587,27 @@ export async function createApp(root: HTMLElement, options: AppOptions = {}): Pr
       renderHome();
     });
 
-    root.querySelector<HTMLElement>('[data-action="open-leaderboard"]')?.addEventListener("click", () => {
-      state.modal = "leaderboard";
+    root.querySelectorAll<HTMLElement>('[data-action="open-leaderboard"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        state.modal = "leaderboard";
+        renderHome();
+      });
+    });
+
+    root.querySelector<HTMLElement>('[data-action="open-guide"]')?.addEventListener("click", () => {
+      state.homeGuideMode = "manual";
+      renderHome();
+    });
+
+    root.querySelector<HTMLElement>('[data-action="start-guide"]')?.addEventListener("click", () => {
+      void enterGame({ startGuide: true });
+    });
+
+    root.querySelector<HTMLElement>('[data-action="skip-guide"]')?.addEventListener("click", () => {
+      if (state.homeGuideMode === "auto") {
+        markPlayerGuideSkipped(PLAYER_GUIDE_FLOW.version);
+      }
+      state.homeGuideMode = null;
       renderHome();
     });
 
@@ -589,6 +631,7 @@ export async function createApp(root: HTMLElement, options: AppOptions = {}): Pr
       writeNickname(state.nickname);
       state.modal = null;
       renderHome();
+      void leaderboardClient.updateNickname(state.nickname).then(() => refreshLeaderboard()).catch(() => refreshLeaderboard());
     });
 
     root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
@@ -598,15 +641,111 @@ export async function createApp(root: HTMLElement, options: AppOptions = {}): Pr
           [input.name]: input.checked,
         };
         writeSettings(state.settings);
+        bgmManager.setEnabled(state.settings.musicEnabled);
       });
+    });
+  };
+
+  const refreshLeaderboard = async (): Promise<void> => {
+    const requestVersion = ++leaderboardRequestVersion;
+    state.leaderboardStatus = "loading";
+    state.leaderboardError = null;
+    if (!started) {
+      renderHome();
+    }
+
+    try {
+      const snapshot = await leaderboardClient.fetchGlobalLeaderboard();
+      if (requestVersion !== leaderboardRequestVersion) {
+        return;
+      }
+
+      state.leaderboardEntries = snapshot.entries;
+      state.myLeaderboard = snapshot.me;
+      state.leaderboardStatus = "ready";
+      state.leaderboardError = null;
+    } catch {
+      if (requestVersion !== leaderboardRequestVersion) {
+        return;
+      }
+
+      state.leaderboardStatus = "error";
+      state.leaderboardError = "\u5b9e\u65f6\u6392\u884c\u699c\u6682\u65f6\u4e0d\u53ef\u7528\u3002";
+    }
+
+    if (!started) {
+      renderHome();
+    }
+  };
+
+  const submitLeaderboardResult = async (result: HudResultState): Promise<void> => {
+    try {
+      const submitted = await leaderboardClient.submitBestScoreIfNeeded({
+        nickname: state.nickname,
+        score: result.score,
+        peakLevel: result.peakLevel,
+      });
+      if (submitted || state.leaderboardStatus !== "ready") {
+        await refreshLeaderboard();
+      }
+    } catch {
+      if (!started) {
+        state.leaderboardStatus = "error";
+        state.leaderboardError = "\u6210\u7ee9\u540c\u6b65\u5931\u8d25\uff0c\u4f46\u4f60\u7684\u672c\u5730\u8bb0\u5f55\u4ecd\u7136\u4fdd\u7559\u3002";
+        renderHome();
+      }
+    }
+  };
+
+  const enterGame = async (enterOptions: { startGuide?: boolean } = {}): Promise<void> => {
+    if (started) {
+      return;
+    }
+
+    started = true;
+    bgmManager.startRound();
+    state.homeGuideMode = null;
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    setScrollLock(true);
+    const { gameRoot, hudRoot } = renderGameScreen(root);
+    const bridge = createHudBridge();
+    mountGameHud(hudRoot, bridge, {
+      leaderboardHref: "/?openLeaderboard=1",
+      playerGuideSteps: enterOptions.startGuide ? PLAYER_GUIDE_FLOW.gameplaySteps : [],
+      onPlayerGuideComplete: () => markPlayerGuideCompleted(PLAYER_GUIDE_FLOW.version),
+      onPlayerGuideSkip: () => markPlayerGuideSkipped(PLAYER_GUIDE_FLOW.version),
     });
 
-    root.querySelectorAll<HTMLElement>('[data-tab]').forEach((button) => {
-      button.addEventListener("click", () => {
-        state.leaderboardTab = button.getAttribute("data-tab") === "weekly" ? "weekly" : "allTime";
-        renderHome();
-      });
+    bridge.subscribe((hudState) => {
+      const signature = createResultSignature(hudState.result);
+      if (!signature) {
+        if (lastHudResultSignature && !hudState.isGameOver) {
+          bgmManager.startRound();
+        }
+        lastHudResultSignature = null;
+        if (!hudState.isGameOver) {
+          lastSubmittedResultSignature = null;
+        }
+        return;
+      }
+
+      lastHudResultSignature = signature;
+      if (signature === lastSubmittedResultSignature) {
+        return;
+      }
+
+      lastSubmittedResultSignature = signature;
+      void submitLeaderboardResult(hudState.result);
     });
+
+    const createGame = await resolveCreateGame(options);
+    createGame(gameRoot, bridge);
   };
 
   if (shouldOpenLateLab()) {
@@ -621,18 +760,24 @@ export async function createApp(root: HTMLElement, options: AppOptions = {}): Pr
     return;
   }
 
+  void leaderboardClient.initPlayer(state.nickname).catch(() => {});
+
   if (options.startGame) {
     await enterGame();
     return;
   }
 
   renderHome();
+  void refreshLeaderboard();
 }
 
 const appRoot = document.querySelector<HTMLElement>("#app");
 if (appRoot) {
   void createApp(appRoot);
 }
+
+
+
 
 
 
