@@ -3,20 +3,21 @@ import { describe, expect, test } from "vitest";
 import { getCatRadius } from "../../src/game/config/cats";
 
 describe("cat radius curve", () => {
-  test("grows gradually early and stays bounded across 18 levels", () => {
+  test("opens up early-game size steps for faster level recognition", () => {
     expect(getCatRadius(1)).toBe(20);
-    expect(getCatRadius(4)).toBe(26);
-    expect(getCatRadius(8)).toBe(40);
-    expect(getCatRadius(12)).toBe(60);
-    expect(getCatRadius(18)).toBe(96);
+    expect(getCatRadius(2)).toBe(24);
+    expect(getCatRadius(4)).toBe(33);
+    expect(getCatRadius(6)).toBe(44);
+    expect(getCatRadius(8)).toBe(56);
   });
 
-  test("keeps late-game growth smooth instead of jumping too hard", () => {
-    expect(getCatRadius(13)).toBe(65);
-    expect(getCatRadius(14)).toBe(71);
-    expect(getCatRadius(15)).toBe(77);
-    expect(getCatRadius(16)).toBe(83);
-    expect(getCatRadius(17)).toBe(89);
+  test("keeps late-game growth smooth and bounded across 18 levels", () => {
+    expect(getCatRadius(12)).toBe(76);
+    expect(getCatRadius(13)).toBe(81);
+    expect(getCatRadius(14)).toBe(85);
+    expect(getCatRadius(15)).toBe(88);
+    expect(getCatRadius(16)).toBe(91);
+    expect(getCatRadius(17)).toBe(94);
     expect(getCatRadius(18)).toBe(96);
   });
 

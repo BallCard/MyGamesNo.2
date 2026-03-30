@@ -26,7 +26,27 @@ const BASE_PLAYFIELD_HEIGHT = 574;
 const MIN_CAT_RADIUS = 20;
 const MAX_CAT_RADIUS_WIDTH_RATIO = 0.218;
 const MAX_CAT_RADIUS_HEIGHT_RATIO = 0.168;
-const CAT_RADIUS_CURVE_EXPONENT = 1.5;
+const BASE_MAX_CAT_RADIUS = 96;
+const BASE_RADIUS_BY_LEVEL = [
+  20,
+  24,
+  28,
+  33,
+  38,
+  44,
+  50,
+  56,
+  61,
+  66,
+  71,
+  76,
+  81,
+  85,
+  88,
+  91,
+  94,
+  96,
+] as const;
 
 const LEVEL_ASSET_KEYS = [
   "cat-1",
@@ -93,14 +113,13 @@ export function getCatRadius(
   playfieldHeight: number = BASE_PLAYFIELD_HEIGHT,
 ): number {
   const clampedLevel = Math.max(1, Math.min(MAX_CAT_LEVEL, level));
-  const ratio = clampedLevel === 1 ? 0 : (clampedLevel - 1) / (MAX_CAT_LEVEL - 1);
   const maxRadius = Math.floor(
     Math.min(playfieldWidth * MAX_CAT_RADIUS_WIDTH_RATIO, playfieldHeight * MAX_CAT_RADIUS_HEIGHT_RATIO),
   );
+  const baseRadius = BASE_RADIUS_BY_LEVEL[clampedLevel - 1] ?? BASE_MAX_CAT_RADIUS;
+  const normalizedRadius = (baseRadius - MIN_CAT_RADIUS) / (BASE_MAX_CAT_RADIUS - MIN_CAT_RADIUS);
 
-  return Math.round(
-    MIN_CAT_RADIUS + (maxRadius - MIN_CAT_RADIUS) * Math.pow(ratio, CAT_RADIUS_CURVE_EXPONENT),
-  );
+  return Math.round(MIN_CAT_RADIUS + (maxRadius - MIN_CAT_RADIUS) * normalizedRadius);
 }
 
 export function getNextCatLevel(level: number): number | null {
