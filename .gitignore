@@ -11,3 +11,6 @@ dist/
 .preview.err.log
 .vite-dev.log
 .vite-dev.err.log
+
+.data/
+.tmp-dev4184.log
